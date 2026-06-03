@@ -63,6 +63,15 @@ def json_response(data, status=200):
     return JSONResponse(content=data, status_code=status)
 
 
+async def get_since(session, delta):
+    """Get since datetime, accounting for future-year data in DB."""
+    since = datetime.now(timezone.utc) - delta
+    max_pub = (await session.execute(text("SELECT MAX(published_at) FROM posts"))).scalar()
+    if max_pub and max_pub.year > datetime.now(timezone.utc).year:
+        since = max_pub - delta
+    return since
+
+
 # ─── SPA ─────────────────────────────────────────────────────
 HTML = '''<!DOCTYPE html>
 <html lang="ru">
@@ -494,7 +503,7 @@ async def api_tags_24h():
 async def chart_tags(days: int = Query(7, ge=1, le=90)):
     try:
         async with async_session() as session:
-            since = datetime.now(timezone.utc) - timedelta(days=days)
+            since = await get_since(session, timedelta(days=days))
             result = await session.execute(text("""
                 WITH tagged AS (
                     SELECT * FROM posts WHERE published_at > :since
@@ -532,13 +541,13 @@ async def chart_tags(days: int = Query(7, ge=1, le=90)):
 async def chart_activity(days: int = Query(7, ge=1, le=90)):
     try:
         async with async_session() as session:
-            since = datetime.now(timezone.utc) - timedelta(days=days)
+            since = await get_since(session, timedelta(days=days))
             result = await session.execute(text("""
                 SELECT EXTRACT(DOW FROM published_at)::int as dow,
                        EXTRACT(HOUR FROM published_at)::int as hr,
                        COUNT(*) as cnt
                 FROM posts WHERE published_at > :since
-                GROUP BY dow, hr ORDER BY dow, hr
+                GROUP BY 1, 2 ORDER BY 1, 2
             """), {"since": since})
             rows = result.mappings().all()
             hours = [0] * (7 * 24)
@@ -561,7 +570,7 @@ async def chart_activity(days: int = Query(7, ge=1, le=90)):
 async def chart_views(days: int = Query(7, ge=1, le=90)):
     try:
         async with async_session() as session:
-            since = datetime.now(timezone.utc) - timedelta(days=days)
+            since = await get_since(session, timedelta(days=days))
             result = await session.execute(text("""
                 SELECT CASE
                     WHEN views_count < 1000 THEN '0-1K'
@@ -587,7 +596,7 @@ async def chart_views(days: int = Query(7, ge=1, le=90)):
 async def chart_timeline(days: int = Query(7, ge=1, le=90)):
     try:
         async with async_session() as session:
-            since = datetime.now(timezone.utc) - timedelta(days=days)
+            since = await get_since(session, timedelta(days=days))
             # Get top 8 tags
             top = await session.execute(text("""
                 WITH tagged AS (
@@ -602,17 +611,18 @@ async def chart_timeline(days: int = Query(7, ge=1, le=90)):
             """), {"since": since})
             top_tags = [r["hashtag"] for r in top.mappings().all()]
 
-            # Build daily series for each tag
+            # Build daily series for each tag — cast to jsonb for @> operator
             days_list = [(since + timedelta(days=i)).strftime("%m-%d") for i in range(days+1)]
             tag_series = []
             for tag in top_tags:
                 daily = await session.execute(text("""
-                    SELECT DATE(published_at)::text as d, COUNT(*) as cnt
+                    SELECT (published_at AT TIME ZONE 'UTC')::date::text as d, COUNT(*) as cnt
                     FROM posts WHERE published_at > :since
-                        AND hashtags @> :tag_json
+                        AND (hashtags)::jsonb @> (:tag_json)::jsonb
                     GROUP BY d ORDER BY d
                 """), {"since": since, "tag_json": f'["{tag}"]'})
                 day_map = {r["d"]: r["cnt"] for r in daily.mappings().all()}
+                since_date = since.strftime("%Y-%m-%d")
                 series = [day_map.get((since + timedelta(days=i)).strftime("%Y-%m-%d"), 0) for i in range(days+1)]
                 tag_series.append({"tag": tag, "series": series, "labels": days_list})
 
@@ -626,7 +636,7 @@ async def chart_timeline(days: int = Query(7, ge=1, le=90)):
 async def chart_pairs(days: int = Query(7, ge=1, le=90)):
     try:
         async with async_session() as session:
-            since = datetime.now(timezone.utc) - timedelta(days=days)
+            since = await get_since(session, timedelta(days=days))
             result = await session.execute(text("""
                 WITH post_tags AS (
                     SELECT id, json_array_elements_text(hashtags) as tag
