@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.tl.types import Message
 
 load_dotenv()
@@ -27,29 +28,48 @@ load_dotenv()
 # ─── Config ──────────────────────────────────────────────────
 TG_API_ID = int(os.getenv("TG_API_ID", "0"))
 TG_API_HASH = os.getenv("TG_API_HASH", "")
+TG_STRING_SESSION = os.getenv("TG_STRING_SESSION", "")
 TG_SESSION = os.getenv("TG_SESSION", "/app/sessions/markettwits_session")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://tgparser:tgparser_secret@postgres/tgparser")
-CHANNEL_USERNAME = "markettwits"
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "markettwits")
 SCHEDULE_MODE = os.getenv("SCHEDULE_MODE", "0") == "1"
 INTERVAL_SEC = int(os.getenv("INTERVAL_SEC", "300"))
 HISTORY = os.getenv("HISTORY", "0") == "1"
 LIMIT = os.getenv("LIMIT")
 LIMIT = int(LIMIT) if LIMIT else None
 
-# ─── Validation ──────────────────────────────────────────────
-if not TG_API_ID or TG_API_ID == 0:
-    print("ERROR: Set TG_API_ID env var (get it from https://my.telegram.org/apps)")
-    sys.exit(1)
-if not TG_API_HASH:
-    print("ERROR: Set TG_API_HASH env var")
-    sys.exit(1)
+# ─── Database URL ────────────────────────────────────────────
+# Render дает postgres://..., SQLAlchemy требует postgresql+asyncpg://
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+
+def _validate():
+    if not TG_API_ID or TG_API_ID == 0:
+        print("ERROR: Set TG_API_ID env var (get it from https://my.telegram.org/apps)")
+        sys.exit(1)
+    if not TG_API_HASH:
+        print("ERROR: Set TG_API_HASH env var")
+        sys.exit(1)
+    if not TG_STRING_SESSION and not os.path.exists(TG_SESSION + ".session"):
+        print("ERROR: Either TG_STRING_SESSION env var or file session required.")
+        print("Run 'python generate_session.py' locally to get a string session.")
+        sys.exit(1)
+    if not DATABASE_URL:
+        print("ERROR: DATABASE_URL env var not set")
+        sys.exit(1)
 
 # ─── Database ────────────────────────────────────────────────
 Base = declarative_base()
-engine = create_async_engine(DATABASE_URL)
-async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+engine = None
+async_session = None
 
+def _init_engine():
+    global engine, async_session
+    if engine is None:
+        engine = create_async_engine(DATABASE_URL)
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# ─── Models ──────────────────────────────────────────────────
 class Channel(Base):
     __tablename__ = "channels"
     id = Column(Integer, primary_key=True)
@@ -129,10 +149,16 @@ def get_media_type(message: Message) -> Optional[str]:
 # ─── Parser ──────────────────────────────────────────────────
 class MarketTwitsParser:
     def __init__(self):
-        os.makedirs(os.path.dirname(TG_SESSION) or ".", exist_ok=True)
-        self.client = TelegramClient(TG_SESSION, TG_API_ID, TG_API_HASH)
+        if TG_STRING_SESSION:
+            session = StringSession(TG_STRING_SESSION)
+        else:
+            from telethon.sessions import SQLiteSession
+            os.makedirs(os.path.dirname(TG_SESSION) or ".", exist_ok=True)
+            session = TG_SESSION
+        self.client = TelegramClient(session, TG_API_ID, TG_API_HASH)
 
     async def init_db(self):
+        _init_engine()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
@@ -271,6 +297,7 @@ class MarketTwitsParser:
                 raise
 
     async def run_once(self):
+        _validate()
         await self.init_db()
         await self.client.start()
         me = await self.client.get_me()
@@ -281,6 +308,7 @@ class MarketTwitsParser:
             await self.client.disconnect()
 
     async def run_scheduled(self):
+        _validate()
         await self.init_db()
         await self.client.start()
         me = await self.client.get_me()
