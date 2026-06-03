@@ -368,16 +368,16 @@ async def api_tags_24h():
                     SELECT * FROM posts
                     WHERE published_at > :since
                       AND hashtags IS NOT NULL
-                      AND jsonb_typeof(hashtags) = 'array'
-                      AND jsonb_array_length(hashtags) > 0
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
                 )
                 SELECT
-                    jsonb_array_elements_text(hashtags) as hashtag,
+                    json_array_elements_text(hashtags) as hashtag,
                     COUNT(*) as cnt,
                     SUM(views_count) as total_views,
                     AVG(views_count)::int as avg_views
                 FROM tagged_posts
-                GROUP BY jsonb_array_elements_text(hashtags)
+                GROUP BY json_array_elements_text(hashtags)
                 ORDER BY cnt DESC
                 LIMIT 50
             """), {"since": since})
@@ -389,16 +389,16 @@ async def api_tags_24h():
                     WITH tagged_posts AS (
                         SELECT * FROM posts
                         WHERE hashtags IS NOT NULL
-                          AND jsonb_typeof(hashtags) = 'array'
-                          AND jsonb_array_length(hashtags) > 0
+                          AND json_typeof(hashtags) = 'array'
+                          AND json_array_length(hashtags) > 0
                     )
                     SELECT
-                        jsonb_array_elements_text(hashtags) as hashtag,
+                        json_array_elements_text(hashtags) as hashtag,
                         COUNT(*) as cnt,
                         SUM(views_count) as total_views,
                         AVG(views_count)::int as avg_views
                     FROM tagged_posts
-                    GROUP BY jsonb_array_elements_text(hashtags)
+                    GROUP BY json_array_elements_text(hashtags)
                     ORDER BY cnt DESC
                     LIMIT 50
                 """))
