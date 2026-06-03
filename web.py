@@ -165,6 +165,7 @@ HTML = '''<!DOCTYPE html>
         <nav>
             <button class="on" data-tab="posts">Posts</button>
             <button data-tab="tags">Tags 24h</button>
+            <button onclick="window.location.href='/charts'">Charts</button>
         </nav>
 
         <!-- Posts Tab -->
@@ -375,6 +376,12 @@ async def root():
     return HTMLResponse(content=HTML)
 
 
+@app.get("/charts", response_class=HTMLResponse)
+async def charts_page():
+    with open(os.path.join(os.path.dirname(__file__), "charts.html"), "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
 # ─── API: Stats ──────────────────────────────────────────────
 @app.get("/api/stats")
 async def api_stats():
@@ -480,3 +487,162 @@ async def api_tags_24h():
         logger.error(f"/tags/24h error: {e}")
         traceback.print_exc()
         return json_response({"tags": [], "error": str(e)}, 500)
+
+
+# ─── Charts API ──────────────────────────────────────────────
+@app.get("/api/charts/tags")
+async def chart_tags(days: int = Query(7, ge=1, le=90)):
+    try:
+        async with async_session() as session:
+            since = datetime.now(timezone.utc) - timedelta(days=days)
+            result = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :since
+                        AND hashtags IS NOT NULL
+                        AND json_typeof(hashtags) = 'array'
+                        AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as hashtag,
+                       COUNT(*) as cnt,
+                       SUM(views_count) as total_views,
+                       AVG(views_count)::int as avg_views
+                FROM tagged
+                GROUP BY json_array_elements_text(hashtags)
+                ORDER BY cnt DESC LIMIT 50
+            """), {"since": since})
+            rows = result.mappings().all()
+            total = (await session.execute(
+                select(func.count()).select_from(Post).where(Post.published_at > since)
+            )).scalar()
+            avg_reach = int((await session.execute(
+                select(func.avg(Post.views_count)).select_from(Post).where(Post.published_at > since)
+            )).scalar() or 0)
+            return {
+                "tags": [{"tag": r["hashtag"], "count": r["cnt"],
+                          "total_views": r["total_views"] or 0, "avg_views": r["avg_views"] or 0} for r in rows],
+                "total_posts": total,
+                "avg_reach": avg_reach,
+            }
+    except Exception as e:
+        logger.error(f"/charts/tags error: {e}")
+        return json_response({"tags": [], "total_posts": 0, "avg_reach": 0, "error": str(e)}, 500)
+
+
+@app.get("/api/charts/activity")
+async def chart_activity(days: int = Query(7, ge=1, le=90)):
+    try:
+        async with async_session() as session:
+            since = datetime.now(timezone.utc) - timedelta(days=days)
+            result = await session.execute(text("""
+                SELECT EXTRACT(DOW FROM published_at)::int as dow,
+                       EXTRACT(HOUR FROM published_at)::int as hr,
+                       COUNT(*) as cnt
+                FROM posts WHERE published_at > :since
+                GROUP BY dow, hr ORDER BY dow, hr
+            """), {"since": since})
+            rows = result.mappings().all()
+            hours = [0] * (7 * 24)
+            peak_hour = 0
+            peak_val = 0
+            for r in rows:
+                idx = r["dow"] * 24 + r["hr"]
+                if 0 <= idx < 168:
+                    hours[idx] = r["cnt"]
+                    if r["cnt"] > peak_val:
+                        peak_val = r["cnt"]
+                        peak_hour = r["hr"]
+            return {"hours": hours, "peak_hour": peak_hour}
+    except Exception as e:
+        logger.error(f"/charts/activity error: {e}")
+        return json_response({"hours": [0]*168, "peak_hour": 0, "error": str(e)}, 500)
+
+
+@app.get("/api/charts/views")
+async def chart_views(days: int = Query(7, ge=1, le=90)):
+    try:
+        async with async_session() as session:
+            since = datetime.now(timezone.utc) - timedelta(days=days)
+            result = await session.execute(text("""
+                SELECT CASE
+                    WHEN views_count < 1000 THEN '0-1K'
+                    WHEN views_count < 5000 THEN '1-5K'
+                    WHEN views_count < 10000 THEN '5-10K'
+                    WHEN views_count < 50000 THEN '10-50K'
+                    WHEN views_count < 100000 THEN '50-100K'
+                    ELSE '100K+'
+                END as bucket, COUNT(*) as cnt
+                FROM posts WHERE published_at > :since
+                GROUP BY bucket ORDER BY MIN(views_count)
+            """), {"since": since})
+            rows = result.mappings().all()
+            order = ['0-1K', '1-5K', '5-10K', '10-50K', '50-100K', '100K+']
+            by_label = {r["bucket"]: r["cnt"] for r in rows}
+            return {"bins": [{"label": b, "count": by_label.get(b, 0)} for b in order]}
+    except Exception as e:
+        logger.error(f"/charts/views error: {e}")
+        return json_response({"bins": [], "error": str(e)}, 500)
+
+
+@app.get("/api/charts/timeline")
+async def chart_timeline(days: int = Query(7, ge=1, le=90)):
+    try:
+        async with async_session() as session:
+            since = datetime.now(timezone.utc) - timedelta(days=days)
+            # Get top 8 tags
+            top = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :since
+                        AND hashtags IS NOT NULL
+                        AND json_typeof(hashtags) = 'array'
+                        AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as hashtag, COUNT(*) as cnt
+                FROM tagged GROUP BY json_array_elements_text(hashtags)
+                ORDER BY cnt DESC LIMIT 8
+            """), {"since": since})
+            top_tags = [r["hashtag"] for r in top.mappings().all()]
+
+            # Build daily series for each tag
+            days_list = [(since + timedelta(days=i)).strftime("%m-%d") for i in range(days+1)]
+            tag_series = []
+            for tag in top_tags:
+                daily = await session.execute(text("""
+                    SELECT DATE(published_at)::text as d, COUNT(*) as cnt
+                    FROM posts WHERE published_at > :since
+                        AND hashtags @> :tag_json
+                    GROUP BY d ORDER BY d
+                """), {"since": since, "tag_json": f'["{tag}"]'})
+                day_map = {r["d"]: r["cnt"] for r in daily.mappings().all()}
+                series = [day_map.get((since + timedelta(days=i)).strftime("%Y-%m-%d"), 0) for i in range(days+1)]
+                tag_series.append({"tag": tag, "series": series, "labels": days_list})
+
+            return {"tags": tag_series}
+    except Exception as e:
+        logger.error(f"/charts/timeline error: {e}")
+        return json_response({"tags": [], "error": str(e)}, 500)
+
+
+@app.get("/api/charts/pairs")
+async def chart_pairs(days: int = Query(7, ge=1, le=90)):
+    try:
+        async with async_session() as session:
+            since = datetime.now(timezone.utc) - timedelta(days=days)
+            result = await session.execute(text("""
+                WITH post_tags AS (
+                    SELECT id, json_array_elements_text(hashtags) as tag
+                    FROM posts
+                    WHERE published_at > :since
+                        AND hashtags IS NOT NULL
+                        AND json_typeof(hashtags) = 'array'
+                        AND json_array_length(hashtags) > 1
+                )
+                SELECT pt1.tag || ' + ' || pt2.tag as pair, COUNT(*) as cnt
+                FROM post_tags pt1
+                JOIN post_tags pt2 ON pt1.id = pt2.id AND pt1.tag < pt2.tag
+                GROUP BY pair ORDER BY cnt DESC LIMIT 20
+            """), {"since": since})
+            rows = result.mappings().all()
+            return {"pairs": [{"pair": r["pair"], "count": r["cnt"]} for r in rows]}
+    except Exception as e:
+        logger.error(f"/charts/pairs error: {e}")
+        return json_response({"pairs": [], "error": str(e)}, 500)
