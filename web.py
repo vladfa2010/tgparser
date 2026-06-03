@@ -241,11 +241,18 @@ SPA_HTML = '''<!DOCTYPE html>
         }
 
         async function loadPosts(page) {
-            if (page) currentPage = page;
+            // If called without page (from Search button), reset to page 1
+            if (page === undefined) currentPage = 1;
+            else if (page) currentPage = page;
+
             const search = document.getElementById('search').value;
             const sort = document.getElementById('sort').value;
+            const url = '/posts?page=' + currentPage + '&limit=20&search=' + encodeURIComponent(search) + '&sort=' + sort;
+            console.log('API:', url);
+
             try {
-                const data = await api('/posts?page=' + currentPage + '&search=' + encodeURIComponent(search) + '&sort=' + sort);
+                const data = await api(url);
+                console.log('Got', data.posts.length, 'posts');
 
                 // Stats
                 const stats = await api('/stats');
@@ -279,13 +286,18 @@ SPA_HTML = '''<!DOCTYPE html>
                 }
 
                 // Pagination
+                const hasNext = data.posts.length === 20;
+                const hasPrev = currentPage > 1;
                 document.getElementById('pagination').innerHTML =
-                    (currentPage > 1 ? `<a onclick="loadPosts(${currentPage-1})">Prev</a>` : '') +
+                    (hasPrev ? `<a href="#" onclick="event.preventDefault(); loadPosts(${currentPage-1}); return false;">&larr; Prev</a>` : '<span></span>') +
                     `<span>Page ${currentPage}</span>` +
-                    (data.posts.length === 20 ? `<a onclick="loadPosts(${currentPage+1})">Next</a>` : '');
+                    (hasNext ? `<a href="#" onclick="event.preventDefault(); loadPosts(${currentPage+1}); return false;">Next &rarr;</a>` : '<span></span>');
 
                 hideWelcome();
-            } catch(e) { console.error(e); }
+            } catch(e) {
+                console.error('loadPosts error:', e);
+                document.getElementById('posts-list').innerHTML = '<div class="empty">Error loading posts. <button class="btn" onclick="loadPosts()">Retry</button></div>';
+            }
         }
 
         async function loadTags() {
