@@ -122,7 +122,8 @@ class ParseLog(Base):
 
 # ─── Helpers ─────────────────────────────────────────────────
 def extract_hashtags(text: str) -> list:
-    return re.findall(r'#\w+', text) if text else []
+    # #\w+ only catches Latin; #\S+ catches everything after # until whitespace
+    return re.findall(r'#\S+', text) if text else []
 
 
 def extract_mentions(text: str) -> list:
