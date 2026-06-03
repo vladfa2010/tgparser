@@ -459,6 +459,35 @@ async def api_posts(
         }
 
 
+@app.get("/api/debug/hashtags")
+async def api_debug_hashtags():
+    """Debug: show raw hashtag data from recent posts"""
+    from datetime import timezone
+    async with async_session() as session:
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        result = await session.execute(text("""
+            SELECT telegram_message_id, hashtags, published_at
+            FROM posts
+            WHERE published_at > :since
+              AND hashtags IS NOT NULL
+            ORDER BY published_at DESC
+            LIMIT 10
+        """), {"since": since})
+        rows = result.mappings().all()
+        return {
+            "count": len(rows),
+            "posts": [
+                {
+                    "id": r["telegram_message_id"],
+                    "hashtags": r["hashtags"],
+                    "hashtags_type": type(r["hashtags"]).__name__,
+                    "published": r["published_at"].isoformat() if r["published_at"] else None,
+                }
+                for r in rows
+            ]
+        }
+
+
 @app.get("/api/tags/24h")
 async def api_tags_24h():
     import traceback
