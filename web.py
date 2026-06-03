@@ -304,42 +304,174 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 <script>
 (function(){
 'use strict';
-var days=1,charts={};
+var days=1, charts={};
 var $=function(id){return document.getElementById(id)};
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
-setTimeout(hideLoader,8000);
+// FORCE hide after 5s no matter what
+setTimeout(hideLoader,5000);
 
-async function api(path,attempt){attempt=attempt||1;try{var r=await fetch('/api'+path,{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);var d=await r.json();if(d.error)throw new Error(d.error);return d}catch(e){if(attempt<3){await new Promise(function(r){setTimeout(r,1000*attempt)});return api(path,attempt+1)}throw e}}
+// Global error handler
+window.onerror=function(msg,url,line){console.error('JS ERROR:',msg,'line',line);hideLoader();var bub=$('c-bubble');if(bub)bub.innerHTML='<div class="err-box"><h3>JavaScript Error</h3><p>'+msg+(line?' (line '+line+')':'')+'</p><button onclick="loadAll()">Retry</button></div>';return true};
 
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 function esc(t){return(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
-function showErr(id,msg){$(id).innerHTML='<div class="err-box"><h3>Error</h3><p>'+esc(msg)+'</p><button onclick="loadAll()">Retry</button></div>';hideLoader()}
+async function api(path,attempt){
+  attempt=attempt||1;
+  try{
+    console.log('API fetch:',path);
+    var r=await fetch('/api'+path,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    console.log('API OK:',path);
+    return d;
+  }catch(e){
+    console.error('API fail',path,'attempt',attempt,e.message);
+    if(attempt<3){await new Promise(function(r){setTimeout(r,1000*attempt)});return api(path,attempt+1)}
+    throw e;
+  }
+}
 
 // Period selector
-document.querySelectorAll('.period button').forEach(function(btn){btn.addEventListener('click',function(){document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});btn.classList.add('on');days=parseInt(btn.dataset.d);loadAll()})});
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');
+    days=parseInt(btn.dataset.d);
+    loadAll();
+  });
+});
 
-async function loadAll(){try{$('loader-sub').textContent='Fetching data...';var t=await api('/charts/tags?days='+days),a=await api('/charts/activity?days='+days),v=await api('/charts/views?days='+days),tl=await api('/charts/timeline?days='+days),p=await api('/charts/pairs?days='+days);
+async function loadAll(){
+  console.log('loadAll() start, days='+days);
+  try{
+    $('loader-sub').textContent='Fetching data...';
+    if(typeof echarts==='undefined'){
+      throw new Error('ECharts not loaded. Check CDN connection.');
+    }
+    console.log('ECharts OK');
+    // Parallel fetch all APIs
+    var t,a,v,tl,p;
+    try{
+      var results=await Promise.all([
+        api('/charts/tags?days='+days),
+        api('/charts/activity?days='+days),
+        api('/charts/views?days='+days),
+        api('/charts/timeline?days='+days),
+        api('/charts/pairs?days='+days)
+      ]);
+      t=results[0];a=results[1];v=results[2];tl=results[3];p=results[4];
+    }catch(pe){throw new Error('API: '+pe.message)}
+    console.log('All API loaded, tags:',t.tags.length);
+    // Stats
+    $('top-stats').innerHTML=[['Posts',fmt(t.total_posts)],['Tags',t.tags.length],['Top',t.tags[0]?t.tags[0].tag:'-'],['Avg',fmt(t.avg_reach)],['Peak',a.peak_hour+'h']].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
+    // Render each chart individually so one failure doesn't kill all
+    try{renderBubble(t.tags);console.log('bubble OK')}catch(e){console.error('bubble:',e);var el=$('c-bubble');if(el)el.innerHTML='<div class="err-box"><h3>Bubble</h3><p>'+e.message+'</p></div>';}
+    try{renderHeat(a.hours,a.peak_hour);console.log('heat OK')}catch(e){console.error('heat:',e);var el=$('c-heat');if(el)el.innerHTML='<div class="err-box"><h3>Heatmap</h3><p>'+e.message+'</p></div>';}
+    try{renderHist(v.bins);console.log('hist OK')}catch(e){console.error('hist:',e);var el=$('c-hist');if(el)el.innerHTML='<div class="err-box"><h3>Histogram</h3><p>'+e.message+'</p></div>';}
+    try{renderTime(tl.tags);console.log('time OK')}catch(e){console.error('time:',e);var el=$('c-time');if(el)el.innerHTML='<div class="err-box"><h3>Timeline</h3><p>'+e.message+'</p></div>';}
+    try{renderPairs(p.pairs);console.log('pairs OK')}catch(e){console.error('pairs:',e);var el=$('c-pair');if(el)el.innerHTML='<div class="err-box"><h3>Pairs</h3><p>'+e.message+'</p></div>';}
+    hideLoader();
+    console.log('all done');
+  }catch(e){
+    console.error('loadAll ERROR:',e);
+    var bub=$('c-bubble');if(bub)bub.innerHTML='<div class="err-box"><h3>Error</h3><p>'+esc(e.message)+'</p><button onclick="loadAll()">Retry</button></div>';
+    ['c-heat','c-hist','c-time','c-pair'].forEach(function(id){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Failed</div>';});
+    hideLoader();
+  }
+}
 
-// Stats
-$('top-stats').innerHTML=[['Posts',fmt(t.total_posts)],['Tags',t.tags.length],['Top',t.tags[0]?t.tags[0].tag:'-'],['Avg',fmt(t.avg_reach)],['Peak',a.peak_hour+'h']].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
+function getChart(id){
+  if(!charts[id]){
+    var el=$(id);
+    if(!el) throw new Error('Element #'+id+' not found');
+    if(typeof echarts==='undefined') throw new Error('ECharts not loaded');
+    charts[id]=echarts.init(el,null,{renderer:'canvas'});
+  }
+  return charts[id];
+}
 
-renderBubble(t.tags);renderHeat(a.hours,a.peak_hour);renderHist(v.bins);renderTime(tl.tags);renderPairs(p.pairs);
-hideLoader();
-}catch(e){console.error(e);showErr('c-bubble',e.message)}}}
+function renderBubble(tags){
+  var c=getChart('c-bubble');
+  var data=tags.slice(0,30).map(function(t,i){return[i+1,t.avg_views,t.count,t.tag,t.total_views]});
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{formatter:function(p){return'<b>'+p.data[3]+'</b><br>Posts: '+p.data[2]+'<br>Avg: '+fmt(p.data[1])+'<br>Total: '+fmt(p.data[4])}},
+    grid:{left:60,right:30,top:30,bottom:60},
+    xAxis:{type:'value',name:'Rank',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    yAxis:{type:'value',name:'Avg Views',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',formatter:function(v){return v>=1000?(v/1000)+'K':v}}},
+    series:[{type:'scatter',data:data,symbolSize:function(v){return Math.max(15,Math.min(80,v[2]*3))},itemStyle:{color:function(p){var cl=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];return cl[p.dataIndex%cl.length]}},label:{show:true,formatter:function(p){return p.data[3]},position:'top',color:'#94a3b8',fontSize:11}}]
+  });
+}
 
-function getChart(id){if(!charts[id])charts[id]=echarts.init($(id),null,{renderer:'canvas'});return charts[id]}
+function renderHeat(hours,peak){
+  var c=getChart('c-heat');
+  var dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var data=[];
+  for(var d=0;d<7;d++)for(var h=0;h<24;h++)data.push([h,d,hours[d*24+h]||0]);
+  var mx=Math.max.apply(null,data.map(function(x){return x[2]}))||1;
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{formatter:function(p){return dayNames[p.data[1]]+' '+p.data[0]+':00 \u2014 '+p.data[2]+' posts'}},
+    grid:{left:60,right:20,top:10,bottom:30},
+    xAxis:{type:'category',data:Array.from({length:24},function(_,i){return i}),splitArea:{show:false},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',interval:2}},
+    yAxis:{type:'category',data:dayNames,splitArea:{show:false},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    visualMap:{min:0,max:mx,orient:'horizontal',left:'center',bottom:0,inRange:{color:['#0f172a','#1e293b','#00d4aa','#00b894','#fdcb6e']},textStyle:{color:'#64748b'}},
+    series:[{type:'heatmap',data:data,label:{show:false}}]
+  });
+}
 
-function renderBubble(tags){var c=getChart('c-bubble'),data=tags.slice(0,30).map(function(t,i){return[i+1,t.avg_views,t.count,t.tag,t.total_views]});c.setOption({backgroundColor:'transparent',tooltip:{formatter:function(p){return'<b>'+p.data[3]+'</b><br>Posts: '+p.data[2]+'<br>Avg: '+fmt(p.data[1])+'<br>Total: '+fmt(p.data[4])}},grid:{left:60,right:30,top:30,bottom:60},xAxis:{type:'value',name:'Rank',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},yAxis:{type:'value',name:'Avg Views',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',formatter:function(v){return v>=1000?(v/1000)+'K':v}}},series:[{type:'scatter',data:data,symbolSize:function(v){return Math.max(15,Math.min(80,v[2]*3))},itemStyle:{color:function(p){var cl=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];return cl[p.dataIndex%cl.length]}},label:{show:true,formatter:function(p){return p.data[3]},position:'top',color:'#94a3b8',fontSize:11}}]});}
+function renderHist(bins){
+  var c=getChart('c-hist');
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{formatter:function(p){return p.name+': '+p.value+' posts'}},
+    grid:{left:50,right:30,top:20,bottom:50},
+    xAxis:{type:'category',data:bins.map(function(b){return b.label}),axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:30}},
+    yAxis:{type:'value',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    series:[{type:'bar',data:bins.map(function(b){return b.count}),itemStyle:{color:function(p){var cl=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055'];return cl[p.dataIndex%cl.length]},borderRadius:[4,4,0,0]}}]
+  });
+}
 
-function renderHeat(hours,peak){var c=getChart('c-heat'),dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],data=[];for(var d=0;d<7;d++)for(var h=0;h<24;h++)data.push([h,d,hours[d*24+h]||0]);var mx=Math.max.apply(null,data.map(function(x){return x[2]}),1);c.setOption({backgroundColor:'transparent',tooltip:{formatter:function(p){return dayNames[p.data[1]]+' '+p.data[0]+':00 — '+p.data[2]+' posts'}},grid:{left:60,right:20,top:10,bottom:30},xAxis:{type:'category',data:Array.from({length:24},function(_,i){return i}),splitArea:{show:false},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',interval:2}},yAxis:{type:'category',data:dayNames,splitArea:{show:false},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},visualMap:{min:0,max:mx,orient:'horizontal',left:'center',bottom:0,inRange:{color:['#0f172a','#1e293b','#00d4aa','#00b894','#fdcb6e']},textStyle:{color:'#64748b'}},series:[{type:'heatmap',data:data,label:{show:false}}]});}
+function renderTime(tags){
+  var c=getChart('c-time');
+  if(!tags||!tags.length){
+    c.setOption({title:{text:'No data',left:'center',top:'center',textStyle:{color:'#64748b'}}},true);
+    return;
+  }
+  var series=tags.slice(0,8).map(function(t,i){
+    var cl=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];
+    return{name:t.tag,type:'line',smooth:true,symbol:'none',lineStyle:{width:2,color:cl[i%8]},areaStyle:{color:cl[i%8],opacity:.1},data:t.series};
+  });
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:tags.slice(0,8).map(function(t){return t.tag}),textStyle:{color:'#94a3b8'},top:0},
+    grid:{left:60,right:30,top:50,bottom:40},
+    xAxis:{type:'category',data:tags[0]?tags[0].labels:[],axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    series:series
+  });
+}
 
-function renderHist(bins){var c=getChart('c-hist');c.setOption({backgroundColor:'transparent',tooltip:{formatter:function(p){return p.name+': '+p.value+' posts'}},grid:{left:50,right:30,top:20,bottom:50},xAxis:{type:'category',data:bins.map(function(b){return b.label}),axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:30}},yAxis:{type:'value',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},series:[{type:'bar',data:bins.map(function(b){return b.count}),itemStyle:{color:function(p){var cl=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055'];return cl[p.dataIndex%cl.length]},borderRadius:[4,4,0,0]}}]});}
-
-function renderTime(tags){var c=getChart('c-time');if(!tags||!tags.length){c.setOption({title:{text:'No data',left:'center',top:'center',textStyle:{color:'#64748b'}}},true);return}var series=tags.slice(0,8).map(function(t,i){var cl=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];return{name:t.tag,type:'line',smooth:true,symbol:'none',lineStyle:{width:2,color:cl[i%8]},areaStyle:{color:cl[i%8],opacity:.1},data:t.series};});c.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},legend:{data:tags.slice(0,8).map(function(t){return t.tag}),textStyle:{color:'#94a3b8'},top:0},grid:{left:60,right:30,top:50,bottom:40},xAxis:{type:'category',data:tags[0]?tags[0].labels:[],axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},series:series});}
-
-function renderPairs(pairs){var c=getChart('c-pair');if(!pairs||!pairs.length){c.setOption({title:{text:'No pairs data',left:'center',top:'center',textStyle:{color:'#64748b'}}},true);return}var data=pairs.slice(0,10);c.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},grid:{left:140,right:30,top:20,bottom:30},xAxis:{type:'value',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},yAxis:{type:'category',data:data.map(function(p){return p.pair}).reverse(),axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#94a3b8',fontSize:11}},series:[{type:'bar',data:data.map(function(p){return p.count}).reverse(),itemStyle:{color:'#00d4aa',borderRadius:[0,4,4,0]}}]});}
+function renderPairs(pairs){
+  var c=getChart('c-pair');
+  if(!pairs||!pairs.length){
+    c.setOption({title:{text:'No pairs data',left:'center',top:'center',textStyle:{color:'#64748b'}}},true);
+    return;
+  }
+  var data=pairs.slice(0,10);
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    grid:{left:140,right:30,top:20,bottom:30},
+    xAxis:{type:'value',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    yAxis:{type:'category',data:data.map(function(p){return p.pair}).reverse(),axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#94a3b8',fontSize:11}},
+    series:[{type:'bar',data:data.map(function(p){return p.count}).reverse(),itemStyle:{color:'#00d4aa',borderRadius:[0,4,4,0]}}]
+  });
+}
 
 window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){if(c)c.resize()})});
 loadAll();
