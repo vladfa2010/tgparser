@@ -38,10 +38,13 @@ LIMIT = os.getenv("LIMIT")
 LIMIT = int(LIMIT) if LIMIT else None
 
 # ─── Database URL ────────────────────────────────────────────
-# Render дает postgres://..., SQLAlchemy требует postgresql+asyncpg://
+# Render дает postgres://... или postgresql://...
+# SQLAlchemy async требует postgresql+asyncpg://
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 def _validate():
     if not TG_API_ID or TG_API_ID == 0:
