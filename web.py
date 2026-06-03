@@ -464,7 +464,20 @@ async def api_debug_hashtags():
     """Debug: show raw hashtag data from recent posts"""
     from datetime import timezone
     async with async_session() as session:
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(hours=24)
+
+        # Check server time vs DB time
+        db_time_result = await session.execute(text("SELECT NOW()"))
+        db_time = db_time_result.scalar()
+
+        max_pub_result = await session.execute(text("SELECT MAX(published_at) FROM posts"))
+        max_pub = max_pub_result.scalar()
+
+        # Fix: if DB dates are in future (2026), adjust since accordingly
+        if max_pub and max_pub.year > now.year:
+            # Use relative to max date instead of wall clock
+            since = max_pub - timedelta(hours=24)
 
         # Check column type in PostgreSQL
         col_result = await session.execute(text("""
@@ -473,7 +486,7 @@ async def api_debug_hashtags():
         """))
         col_type = col_result.scalar()
 
-        # Simple query without jsonb_typeof
+        # Simple query
         result = await session.execute(text("""
             SELECT telegram_message_id, hashtags, published_at
             FROM posts
@@ -486,7 +499,7 @@ async def api_debug_hashtags():
         """), {"since": since})
         rows = result.mappings().all()
 
-        # Test the aggregation query step by step
+        # Test aggregation
         agg_result = await session.execute(text("""
             SELECT
                 jsonb_array_elements_text(hashtags) as hashtag,
@@ -501,17 +514,12 @@ async def api_debug_hashtags():
         agg_rows = agg_result.mappings().all()
 
         return {
+            "clock_now": now.isoformat(),
+            "db_time": db_time.isoformat() if db_time else None,
+            "max_published": max_pub.isoformat() if max_pub else None,
+            "adjusted_since": since.isoformat(),
             "column_type": col_type,
-            "since": since.isoformat(),
             "post_count": len(rows),
-            "posts": [
-                {
-                    "id": r["telegram_message_id"],
-                    "hashtags": r["hashtags"],
-                    "published": r["published_at"].isoformat() if r["published_at"] else None,
-                }
-                for r in rows
-            ],
             "aggregation_test": [
                 {"tag": r["hashtag"], "count": r["cnt"]} for r in agg_rows
             ]
@@ -523,9 +531,17 @@ async def api_tags_24h():
     import traceback
     from datetime import timezone
     async with async_session() as session:
-        # FIX: timezone-aware datetime for proper comparison with PostgreSQL timestamp with time zone
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
-        print(f"[DEBUG] /api/tags/24h since={since.isoformat()}")
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(hours=24)
+
+        # FIX: if DB dates are in future (e.g. 2026), adjust since relative to max date
+        max_pub_result = await session.execute(text("SELECT MAX(published_at) FROM posts"))
+        max_pub = max_pub_result.scalar()
+        if max_pub and max_pub.year > now.year:
+            since = max_pub - timedelta(hours=24)
+
+        print(f"[DEBUG] /api/tags/24h since={since.isoformat()} max_pub={max_pub.isoformat() if max_pub else 'none'}")
         try:
             # Quick check: how many posts have tags in last 24h?
             check = await session.execute(text("""
