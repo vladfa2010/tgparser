@@ -177,7 +177,7 @@ function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))e
 setTimeout(hideLoader,6000);
 
 function showError(id,msg){$(id).innerHTML='<div class="err"><h3>Failed to load</h3><p>'+esc(msg)+'</p><button onclick="location.reload()">Reload Page</button></div>';hideLoader()}
-function esc(t){return(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 
 async function api(path,attempt){attempt=attempt||1;try{var r=await fetch('/api'+path,{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);var d=await r.json();if(d.error)throw new Error(d.error);return d}catch(e){if(attempt<3){await new Promise(function(r){setTimeout(r,1000*attempt)});return api(path,attempt+1)}throw e}}
@@ -315,7 +315,7 @@ setTimeout(hideLoader,5000);
 window.onerror=function(msg,url,line){console.error('JS ERROR:',msg,'line',line);hideLoader();var bub=$('c-bubble');if(bub)bub.innerHTML='<div class="err-box"><h3>JavaScript Error</h3><p>'+msg+(line?' (line '+line+')':'')+'</p><button onclick="loadAll()">Retry</button></div>';return true};
 
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
-function esc(t){return(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 async function api(path,attempt){
   attempt=attempt||1;
@@ -474,6 +474,7 @@ function renderPairs(pairs){
 }
 
 window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){if(c)c.resize()})});
+window.loadAll=loadAll;
 loadAll();
 })();
 </script>
