@@ -465,25 +465,55 @@ async def api_debug_hashtags():
     from datetime import timezone
     async with async_session() as session:
         since = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        # Check column type in PostgreSQL
+        col_result = await session.execute(text("""
+            SELECT data_type FROM information_schema.columns
+            WHERE table_name = 'posts' AND column_name = 'hashtags'
+        """))
+        col_type = col_result.scalar()
+
+        # Simple query without jsonb_typeof
         result = await session.execute(text("""
             SELECT telegram_message_id, hashtags, published_at
             FROM posts
             WHERE published_at > :since
               AND hashtags IS NOT NULL
+              AND hashtags != '[]'::jsonb
+              AND hashtags != 'null'::jsonb
             ORDER BY published_at DESC
             LIMIT 10
         """), {"since": since})
         rows = result.mappings().all()
+
+        # Test the aggregation query step by step
+        agg_result = await session.execute(text("""
+            SELECT
+                jsonb_array_elements_text(hashtags) as hashtag,
+                COUNT(*) as cnt
+            FROM posts
+            WHERE published_at > :since
+              AND hashtags IS NOT NULL
+            GROUP BY jsonb_array_elements_text(hashtags)
+            ORDER BY cnt DESC
+            LIMIT 10
+        """), {"since": since})
+        agg_rows = agg_result.mappings().all()
+
         return {
-            "count": len(rows),
+            "column_type": col_type,
+            "since": since.isoformat(),
+            "post_count": len(rows),
             "posts": [
                 {
                     "id": r["telegram_message_id"],
                     "hashtags": r["hashtags"],
-                    "hashtags_type": type(r["hashtags"]).__name__,
                     "published": r["published_at"].isoformat() if r["published_at"] else None,
                 }
                 for r in rows
+            ],
+            "aggregation_test": [
+                {"tag": r["hashtag"], "count": r["cnt"]} for r in agg_rows
             ]
         }
 
