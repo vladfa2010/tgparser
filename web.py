@@ -339,12 +339,16 @@ async def api_posts(page: int = 1, limit: int = 20, search: str = "", sort: str 
 
 @app.get("/api/tags/24h")
 async def api_tags_24h():
-    """Safe tag aggregation. Uses CTE to filter non-empty arrays before unnesting."""
     try:
         async with async_session() as session:
-            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            now = datetime.now(timezone.utc)
+            since = now - timedelta(hours=24)
 
-            # SAFE: filter posts with non-empty tag arrays, THEN unnest
+            # CRITICAL FIX: if DB dates are in future (e.g. 2026), adjust since
+            max_pub = (await session.execute(text("SELECT MAX(published_at) FROM posts"))).scalar()
+            if max_pub and max_pub.year > now.year:
+                since = max_pub - timedelta(hours=24)
+
             result = await session.execute(text("""
                 WITH tagged_posts AS (
                     SELECT * FROM posts
