@@ -10,6 +10,18 @@ Parser for @markettwits Telegram channel. Saves posts to PostgreSQL with hashtag
 - **Docker** — containerization
 - **Render** — hosting (cron job + managed PostgreSQL)
 
+## Known Issues
+
+### Tags 24h tab — infinite loading
+**Status:** Fixed in commit `TBD`  
+**Root cause:** `showTab()` used `event.target` which is undefined in some browsers. `tagsLoaded` flag prevented retry on error.  
+**Fix:** Pass button element explicitly (`this`), replace boolean flag with `tagsLoading` guard, add error handling + retry button.
+
+### Cold start on Render Starter
+**Status:** Mitigated  
+**Root cause:** Render Starter plan puts service to sleep after 15 min of inactivity. First request takes 10-30s to wake up.  
+**Workaround:** SPA architecture — static HTML renders instantly, data loads via async API calls. Welcome overlay with loader animation shown during wake-up.
+
 ## Quick Start (Docker Compose locally)
 
 ```bash

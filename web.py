@@ -162,8 +162,8 @@ SPA_HTML = '''<!DOCTYPE html>
         <p class="subtitle" id="subtitle">Loading channel info...</p>
 
         <div class="nav">
-            <button class="nav-btn active" onclick="showTab('posts')">Posts</button>
-            <button class="nav-btn" onclick="showTab('tags')">Tags 24h</button>
+            <button class="nav-btn active" onclick="showTab('posts', this)">Posts</button>
+            <button class="nav-btn" onclick="showTab('tags', this)">Tags 24h</button>
         </div>
 
         <!-- Posts Tab -->
@@ -213,12 +213,12 @@ SPA_HTML = '''<!DOCTYPE html>
             document.getElementById('welcome').classList.add('hidden');
         }
 
-        function showTab(tab) {
+        function showTab(tab, btn) {
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
+            btn.classList.add('active');
             document.getElementById('tab-posts').style.display = tab === 'posts' ? '' : 'none';
             document.getElementById('tab-tags').style.display = tab === 'tags' ? '' : 'none';
-            if (tab === 'tags' && !window.tagsLoaded) loadTags();
+            if (tab === 'tags') loadTags();
         }
 
         async function api(path) {
@@ -289,10 +289,12 @@ SPA_HTML = '''<!DOCTYPE html>
         }
 
         async function loadTags() {
-            window.tagsLoaded = true;
+            if (window.tagsLoading) return;
+            window.tagsLoading = true;
             try {
                 const data = await api('/tags/24h');
                 const tags = data.tags;
+                window.tagsLoaded = true;
 
                 document.getElementById('tag-stats').innerHTML = `
                     <div class="stat"><div class="stat-value">${tags.length}</div><div class="stat-label">Unique tags</div></div>
@@ -328,7 +330,13 @@ SPA_HTML = '''<!DOCTYPE html>
                 });
 
                 document.getElementById('tags-content').innerHTML = html;
-            } catch(e) { console.error(e); }
+            } catch(e) {
+                console.error('loadTags error:', e);
+                document.getElementById('tags-content').innerHTML =
+                    '<div class="empty">Error loading tags. <button class="btn" onclick="loadTags()">Retry</button></div>';
+            } finally {
+                window.tagsLoading = false;
+            }
         }
 
         function searchTag(tag) {
