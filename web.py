@@ -296,6 +296,7 @@ SPA_HTML = '''<!DOCTYPE html>
                 const tags = data.tags;
                 window.tagsLoaded = true;
 
+                const isFallback = data.fallback;
                 document.getElementById('tag-stats').innerHTML = `
                     <div class="stat"><div class="stat-value">${tags.length}</div><div class="stat-label">Unique tags</div></div>
                     <div class="stat"><div class="stat-value">${tags[0] ? tags[0].tag : '-'}</div><div class="stat-label">Top tag</div></div>
@@ -303,14 +304,14 @@ SPA_HTML = '''<!DOCTYPE html>
                 `;
 
                 if (!tags.length) {
-                    document.getElementById('tags-content').innerHTML = '<div class="empty">No tags in last 24h</div>';
+                    document.getElementById('tags-content').innerHTML = '<div class="empty">No tags found</div>';
                     return;
                 }
 
                 const maxCount = Math.max(...tags.map(t => t.count));
                 const colors = ['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];
 
-                let html = '<div class="time-badge">Last 24 hours</div>';
+                let html = `<div class="time-badge">${isFallback ? 'Last 24 hours (no data — showing all-time)' : 'Last 24 hours'}</div>`;
                 html += '<div class="section-title">Tag Cloud</div>';
                 html += '<div class="tag-cloud">';
                 tags.slice(0, 20).forEach(t => {
@@ -444,35 +445,61 @@ async def api_posts(
 
 @app.get("/api/tags/24h")
 async def api_tags_24h():
+    import traceback
     async with async_session() as session:
         since = datetime.utcnow() - timedelta(hours=24)
-        result = await session.execute(text("""
-            SELECT
-                jsonb_array_elements_text(hashtags) as hashtag,
-                COUNT(*) as cnt,
-                SUM(views_count) as total_views,
-                MAX(views_count) as max_views,
-                AVG(views_count)::int as avg_views
-            FROM posts
-            WHERE published_at > :since
-              AND hashtags IS NOT NULL
-              AND jsonb_typeof(hashtags) = 'array'
-              AND jsonb_array_length(hashtags) > 0
-            GROUP BY jsonb_array_elements_text(hashtags)
-            ORDER BY cnt DESC
-            LIMIT 50
-        """), {"since": since})
+        try:
+            result = await session.execute(text("""
+                SELECT
+                    jsonb_array_elements_text(hashtags) as hashtag,
+                    COUNT(*) as cnt,
+                    SUM(views_count) as total_views,
+                    MAX(views_count) as max_views,
+                    AVG(views_count)::int as avg_views
+                FROM posts
+                WHERE published_at > :since
+                  AND hashtags IS NOT NULL
+                  AND jsonb_typeof(hashtags) = 'array'
+                  AND jsonb_array_length(hashtags) > 0
+                GROUP BY jsonb_array_elements_text(hashtags)
+                ORDER BY cnt DESC
+                LIMIT 50
+            """), {"since": since})
+            rows = result.mappings().all()
 
-        rows = result.mappings().all()
-        return {
-            "tags": [
-                {
-                    "tag": r["hashtag"],
-                    "count": r["cnt"],
-                    "total_views": r["total_views"],
-                    "max_views": r["max_views"],
-                    "avg_views": r["avg_views"],
-                }
-                for r in rows
-            ]
-        }
+            # Fallback: if no tags in 24h, show all-time top tags
+            if not rows:
+                result = await session.execute(text("""
+                    SELECT
+                        jsonb_array_elements_text(hashtags) as hashtag,
+                        COUNT(*) as cnt,
+                        SUM(views_count) as total_views,
+                        MAX(views_count) as max_views,
+                        AVG(views_count)::int as avg_views
+                    FROM posts
+                    WHERE hashtags IS NOT NULL
+                      AND jsonb_typeof(hashtags) = 'array'
+                      AND jsonb_array_length(hashtags) > 0
+                    GROUP BY jsonb_array_elements_text(hashtags)
+                    ORDER BY cnt DESC
+                    LIMIT 50
+                """))
+                rows = result.mappings().all()
+
+            return {
+                "tags": [
+                    {
+                        "tag": r["hashtag"],
+                        "count": r["cnt"],
+                        "total_views": r["total_views"] or 0,
+                        "max_views": r["max_views"] or 0,
+                        "avg_views": r["avg_views"] or 0,
+                    }
+                    for r in rows
+                ],
+                "fallback": rows and since is not None,
+            }
+        except Exception as e:
+            print(f"ERROR in /api/tags/24h: {e}")
+            traceback.print_exc()
+            return {"tags": [], "error": str(e)}
