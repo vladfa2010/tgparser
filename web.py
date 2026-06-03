@@ -53,6 +53,11 @@ class ParseLog(Base):
 
 app = FastAPI()
 
+import logging
+import traceback
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ─── SPA HTML ────────────────────────────────────────────────
 SPA_HTML = '''<!DOCTYPE html>
 <html lang="ru">
@@ -153,7 +158,8 @@ SPA_HTML = '''<!DOCTYPE html>
         function hideWelcome() {
             document.getElementById('welcome').classList.add('hidden');
         }
-        setTimeout(hideWelcome, 8000); // Force hide after 8s
+        setTimeout(hideWelcome, 5000); // Force hide after 5s regardless of errors
+        window.onerror = function() { hideWelcome(); };
 
         function showTab(tab, btn) {
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -284,6 +290,7 @@ async def root():
 @app.get("/api/stats")
 async def api_stats():
     try:
+        logger.info("API /stats called")
         async with async_session() as session:
             total = (await session.execute(select(func.count()).select_from(Post))).scalar()
             today = (await session.execute(
@@ -311,12 +318,15 @@ async def api_stats():
                 "last_parsed": last.strftime("%Y-%m-%d %H:%M") if last else None,
             }
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"/stats error: {e}")
+        traceback.print_exc()
+        return {"error": str(e), "total_posts": 0, "today_posts": 0, "week_posts": 0, "avg_views": 0, "total_parses": 0}
 
 
 @app.get("/api/posts")
 async def api_posts(page: int = 1, limit: int = 20, search: str = "", sort: str = "new"):
     try:
+        logger.info(f"API /posts page={page} search={search}")
         async with async_session() as session:
             query = select(Post)
             if search:
@@ -334,20 +344,24 @@ async def api_posts(page: int = 1, limit: int = 20, search: str = "", sort: str 
                                "hashtags": p.hashtags or [], "published": p.published_at.isoformat() if p.published_at else None}
                               for p in posts]}
     except Exception as e:
+        logger.error(f"/posts error: {e}")
+        traceback.print_exc()
         return {"error": str(e), "posts": []}
 
 
 @app.get("/api/tags/24h")
 async def api_tags_24h():
     try:
+        logger.info("API /tags/24h called")
         async with async_session() as session:
             now = datetime.now(timezone.utc)
             since = now - timedelta(hours=24)
 
-            # CRITICAL FIX: if DB dates are in future (e.g. 2026), adjust since
             max_pub = (await session.execute(text("SELECT MAX(published_at) FROM posts"))).scalar()
+            logger.info(f"max_pub={max_pub}, now.year={now.year}")
             if max_pub and max_pub.year > now.year:
                 since = max_pub - timedelta(hours=24)
+                logger.info(f"Adjusted since={since}")
 
             result = await session.execute(text("""
                 WITH tagged_posts AS (
