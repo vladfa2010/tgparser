@@ -243,12 +243,12 @@ async def dashboard(
         <div class="posts">
             {''.join(f"""<div class="post">
                 <div class="post-header">
-                    <span>🆔 {p['telegram_message_id']}</span>
-                    <span>👁 {p['views_count']}</span>
-                    <span>🔄 {p['forwards_count']}</span>
-                    <span>💬 {p['replies_count']}</span>
-                    <span>📅 {p['published_at']}</span>
-                    {f'<span>↪️ {p["forward_from"]}</span>' if p['forward_from'] else ''}
+                    <span>ID: {p['telegram_message_id']}</span>
+                    <span>views: {p['views_count']}</span>
+                    <span>fwd: {p['forwards_count']}</span>
+                    <span>replies: {p['replies_count']}</span>
+                    <span>date: {p['published_at']}</span>
+                    {f'<span>from: {p["forward_from"]}</span>' if p['forward_from'] else ''}
                 </div>
                 <div class="post-text">{p['text']}</div>
                 {''.join(f'<div class="post-tags">{"".join(f"<a href=\"/tags?tag={t.lstrip("#")}\" class=\"tag\">{t}</a>" for t in p["hashtags"])}</div>' if p['hashtags'] else '')}
@@ -300,9 +300,9 @@ async def tags_page(
             <div class="posts">
                 {''.join(f"""<div class="post">
                     <div class="post-header">
-                        <span>🆔 {p.telegram_message_id}</span>
-                        <span>👁 {p.views_count:,}</span>
-                        <span>📅 {p.published_at.strftime('%d.%m %H:%M') if p.published_at else '—'}</span>
+                        <span>ID: {p.telegram_message_id}</span>
+                        <span>views: {p.views_count:,}</span>
+                        <span>date: {p.published_at.strftime('%d.%m %H:%M') if p.published_at else '—'}</span>
                     </div>
                     <div class="post-text">{(p.text or '(медиа)').replace(chr(10), '<br>')}</div>
                     <div class="post-tags">{"".join(f'<a href="/tags?tag={t.lstrip("#")}" class="tag">{t}</a>' for t in (p.hashtags or []))}</div>
