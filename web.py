@@ -305,10 +305,12 @@ SPA_HTML = '''<!DOCTYPE html>
             window.tagsLoading = true;
             try {
                 const data = await api('/tags/24h');
+                console.log('[DEBUG] tags response:', data);
                 const tags = data.tags;
                 window.tagsLoaded = true;
 
                 const isFallback = data.fallback;
+                const debug = data.debug || {};
                 document.getElementById('tag-stats').innerHTML = `
                     <div class="stat"><div class="stat-value">${tags.length}</div><div class="stat-label">Unique tags</div></div>
                     <div class="stat"><div class="stat-value">${tags[0] ? tags[0].tag : '-'}</div><div class="stat-label">Top tag</div></div>
@@ -316,7 +318,9 @@ SPA_HTML = '''<!DOCTYPE html>
                 `;
 
                 if (!tags.length) {
-                    document.getElementById('tags-content').innerHTML = '<div class="empty">No tags found</div>';
+                    document.getElementById('tags-content').innerHTML =
+                        '<div class="empty">No tags found. Debug: since=' + (debug.since || '?') +
+                        ', tagged_posts_24h=' + (debug.tagged_posts_24h || '?') + '</div>';
                     return;
                 }
 
@@ -458,9 +462,22 @@ async def api_posts(
 @app.get("/api/tags/24h")
 async def api_tags_24h():
     import traceback
+    from datetime import timezone
     async with async_session() as session:
-        since = datetime.utcnow() - timedelta(hours=24)
+        # FIX: timezone-aware datetime for proper comparison with PostgreSQL timestamp with time zone
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        print(f"[DEBUG] /api/tags/24h since={since.isoformat()}")
         try:
+            # Quick check: how many posts have tags in last 24h?
+            check = await session.execute(text("""
+                SELECT COUNT(*) FROM posts
+                WHERE published_at > :since
+                  AND hashtags IS NOT NULL
+                  AND jsonb_typeof(hashtags) = 'array'
+            """), {"since": since})
+            tagged_count = check.scalar()
+            print(f"[DEBUG] Posts with tags in 24h: {tagged_count}")
+
             result = await session.execute(text("""
                 SELECT
                     jsonb_array_elements_text(hashtags) as hashtag,
@@ -478,9 +495,12 @@ async def api_tags_24h():
                 LIMIT 50
             """), {"since": since})
             rows = result.mappings().all()
+            print(f"[DEBUG] Tag rows returned: {len(rows)}")
 
+            is_fallback = False
             # Fallback: if no tags in 24h, show all-time top tags
             if not rows:
+                is_fallback = True
                 result = await session.execute(text("""
                     SELECT
                         jsonb_array_elements_text(hashtags) as hashtag,
@@ -497,6 +517,7 @@ async def api_tags_24h():
                     LIMIT 50
                 """))
                 rows = result.mappings().all()
+                print(f"[DEBUG] Fallback rows: {len(rows)}")
 
             return {
                 "tags": [
@@ -509,9 +530,10 @@ async def api_tags_24h():
                     }
                     for r in rows
                 ],
-                "fallback": rows and since is not None,
+                "fallback": is_fallback,
+                "debug": {"since": since.isoformat(), "tagged_posts_24h": tagged_count},
             }
         except Exception as e:
-            print(f"ERROR in /api/tags/24h: {e}")
+            print(f"[ERROR] /api/tags/24h: {e}")
             traceback.print_exc()
-            return {"tags": [], "error": str(e)}
+            return {"tags": [], "error": str(e), "debug": {"since": since.isoformat()}}
