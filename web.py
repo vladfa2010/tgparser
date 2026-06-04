@@ -359,6 +359,11 @@ async function showPostsForDay(idx){
       }
     });
     console.log('overlayData non-null:',overlayData.filter(function(x){return x!==null;}).length);
+    // Build scatter data: [index, high, text] for each news
+    var scatterData=[];
+    for(var i=0;i<overlayData.length;i++){
+      if(overlayData[i]!==null)scatterData.push([i,overlayData[i],newsMap[i]]);
+    }
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
       intradayChart.setOption({
@@ -375,11 +380,6 @@ async function showPostsForDay(idx){
         grid:{left:50,right:20,top:30,bottom:50},
         xAxis:{type:'category',data:times,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',fontSize:9,interval:11}},
         yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
-        // Build scatter data: [index, high, text] for each news
-        var scatterData=[];
-        for(var i=0;i<overlayData.length;i++){
-          if(overlayData[i]!==null)scatterData.push([i,overlayData[i],newsMap[i]]);
-        }
         series:[
           {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
           {type:'scatter',data:scatterData,symbol:'circle',symbolSize:14,
