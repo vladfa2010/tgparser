@@ -274,7 +274,7 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 </div>
 
 <div class="chart-box">
-<div class="chart-title">&#128200; Stock Price (MOEX)</div>
+<div class="chart-title">&#128200; OHLC Candlestick (MOEX)</div>
 <div class="chart" id="stock-chart"></div>
 </div>
 
@@ -321,9 +321,9 @@ async function loadCharts(){
     var t=await api('/analytics/tag-daily?tag=%23'+encodeURIComponent(ticker)+'&days=90');
 
     // Stock stats
-    var closes=s.closes||[];
-    var latest=closes.length?closes[closes.length-1]:0;
-    var first=closes.length?closes[0]:0;
+    var ohlc=s.ohlc||[];
+    var latest=ohlc.length?ohlc[ohlc.length-1][1]:0;  // close
+    var first=ohlc.length?ohlc[0][0]:0;  // open of first day
     var pct=first?(((latest-first)/first)*100):0;
     $('s-price').textContent=latest?fmt(latest)+' RUB':'N/A';
     var chEl=$('s-change');
@@ -337,17 +337,23 @@ async function loadCharts(){
     $('s-total').textContent=fmt(total);
     $('s-days').textContent=nonzero;
 
-    // Render stock chart
-    if(s.days&&s.days.length){
+    // Render stock chart (OHLC candlestick)
+    if(s.days&&s.days.length&&ohlc.length){
       getStockChart().setOption({
         backgroundColor:'transparent',
-        tooltip:{trigger:'axis',formatter:function(p){var d=p[0];return d.name+'<br>Close: '+fmt(d.value)+' RUB';}},
+        tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:function(p){
+          var d=p[0];
+          var o=d.data[1],cl=d.data[2],lo=d.data[3],hi=d.data[4];
+          var color=cl>=o?'#00d4aa':'#f87171';
+          return d.name+'<br><span style="color:'+color+'">O:'+fmt(o)+' C:'+fmt(cl)+'<br>L:'+fmt(lo)+' H:'+fmt(hi)+'</span>';
+        }},
         grid:{left:50,right:20,top:20,bottom:70},
         xAxis:{type:'category',data:s.days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45,fontSize:10}},
-        yAxis:{type:'value',name:'RUB',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',formatter:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}}},
+        yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',formatter:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}}},
         series:[{
-          type:'line',data:closes,smooth:true,symbol:'none',lineStyle:{width:2,color:'#00d4aa'},areaStyle:{color:'#00d4aa',opacity:.15},
-          markLine:{silent:true,data:[{type:'average',name:'Avg'}],lineStyle:{color:'#64748b',type:'dashed'}}
+          type:'candlestick',data:ohlc,
+          itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'},
+          markLine:{silent:true,data:[{type:'average',name:'Avg'}],lineStyle:{color:'#64748b',type:'dashed',width:1},label:{color:'#64748b',formatter:function(p){return fmt(p.value);}}}
         }]
       },true);
     }else{$('stock-chart').innerHTML='<div class="empty">No stock data for '+esc(ticker)+'</div>';}
@@ -1120,13 +1126,13 @@ async def stock_price(ticker: str = Query(...), days: int = Query(90, ge=1, le=3
             return json_response({"ticker": ticker, "days": [], "closes": [], "error": "No data from MOEX"})
 
         days_list = []
-        closes = []
+        ohlc = []  # [open, close, low, high] for ECharts candlestick
         for row in candles:
             d = datetime.strptime(row[6], "%Y-%m-%d %H:%M:%S").strftime("%m-%d")
             days_list.append(d)
-            closes.append(row[1])  # close price
+            ohlc.append([row[0], row[1], row[3], row[2]])  # [open, close, low, high]
 
-        return {"ticker": ticker, "days": days_list, "closes": closes}
+        return {"ticker": ticker, "days": days_list, "ohlc": ohlc}
     except Exception as e:
         logger.error(f"/stock/price error: {e}"); traceback.print_exc()
         return json_response({"ticker": ticker, "days": [], "closes": [], "error": str(e)}, 500)
