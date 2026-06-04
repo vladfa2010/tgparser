@@ -123,7 +123,7 @@ parse_logs   — parsing history (posts count, duration, errors)
 | **Posts** | `/` | Browse posts, search, pagination, tags 24h tab |
 | **Charts** | `/charts` | 5 ECharts visualizations: bubble, heatmap, histogram, timeline, pairs |
 | **Analytics** | `/analytics` | All-time top tags, trending, tag cloud, search by tag, CSV export |
-| **Tag Daily** | `/tag-daily` | Histogram of posts per day for any tag (90 days), customizable input |
+| **Stock & Tag** | `/tag-daily` | MOEX OHLC candlestick + news histogram + 5-min intraday with news markers |
 
 ## Files
 
