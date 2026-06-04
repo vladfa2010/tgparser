@@ -1216,28 +1216,16 @@ async def stock_intraday(ticker: str = Query(...), date: str = Query(...)):
         import urllib.request
         from datetime import datetime
         ticker = ticker.upper()
-        # MOEX interval=5 returns empty — use interval=1 (1 min) with pagination
-        # Then take every 5th candle to get ~5-min equivalent
-        all_candles = []
-        start = 0
-        while True:
-            moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={date}&till={date}&interval=1&start={start}"
-            req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
-            batch = data.get("candles", {}).get("data", [])
-            if not batch:
-                break
-            all_candles.extend(batch)
-            start += len(batch)
-            if len(batch) < 500:
-                break
+        # MOEX: interval=10 gives 5-minute candles (MOEX uses 10=5min, 1=1min)
+        moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={date}&till={date}&interval=10"
+        req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
 
-        # Take every 5th candle for cleaner chart (~200 points)
-        sparse = all_candles[::5] if len(all_candles) > 200 else all_candles
+        candles = data.get("candles", {}).get("data", [])
         times = []
         ohlc = []
-        for row in sparse:
+        for row in candles:
             t = datetime.strptime(row[6], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
             times.append(t)
             ohlc.append([row[0], row[1], row[3], row[2]])
