@@ -8,6 +8,7 @@ import logging
 import traceback
 import csv
 import io
+import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Query
