@@ -339,36 +339,41 @@ async function showPostsForDay(idx){
     // News markers: find time index in times array for category X-axis
     var timeIndex={};
     for(var i=0;i<times.length;i++)timeIndex[times[i]]=i;
-    var markPoints=posts.filter(function(p){return p.published}).map(function(p){
+    // Build overlay data: null everywhere except news timestamp = high price
+    var overlayData=times.map(function(){return null;});
+    var newsMap={};
+    posts.filter(function(p){return p.published;}).forEach(function(p){
       var h=parseInt(p.published.slice(11,13));
       var m=p.published.slice(14,16);
       h=(h+3)%24;
       var t=(h<10?'0':'')+h+':'+m;
       var idx=timeIndex[t]!==undefined?timeIndex[t]:-1;
-      if(idx<0)return null;
-      return{name:'News',xAxis:idx,y:'max',value:p.text?p.text.slice(0,50):'News',itemStyle:{color:'#fdcb6e'}};
-    }).filter(function(m){return m!==null;});
+      if(idx>=0&&idx<ohlc.length){
+        overlayData[idx]=ohlc[idx][3]; // high price
+        newsMap[idx]=p.text?p.text.slice(0,60):'News';
+      }
+    });
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
       intradayChart.setOption({
         backgroundColor:'transparent',
         tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:function(p){
-          if(p[0]&&p[0].seriesType==='candlestick'){
-            var d=p[0]; var o=d.data[1],cl=d.data[2],lo=d.data[3],hi=d.data[4];
-            var color=cl>=o?'#00d4aa':'#f87171';
-            return d.name+'<br><span style="color:'+color+'">O:'+fmt(o)+' C:'+fmt(cl)+' L:'+fmt(lo)+' H:'+fmt(hi)+'</span>';
+          var i=p[0].dataIndex;
+          if(newsMap[i]&&p[0]&&p[0].seriesIndex===1){
+            return'<b style=\"color:#fdcb6e\">News at '+esc(times[i])+'</b><br>'+esc(newsMap[i]);
           }
-          if(p[0]&&p[0].seriesType==='markPoint'){
-            return'<b>News</b><br>'+esc(p[0].data.value||'');
-          }
-          return'';
+          var d=p[0]; var o=d.data[1],cl=d.data[2],lo=d.data[3],hi=d.data[4];
+          var color=cl>=o?'#00d4aa':'#f87171';
+          return d.name+'<br><span style="color:'+color+'">O:'+fmt(o)+' C:'+fmt(cl)+' L:'+fmt(lo)+' H:'+fmt(hi)+'</span>';
         }},
         grid:{left:50,right:20,top:30,bottom:50},
         xAxis:{type:'category',data:times,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',fontSize:9,interval:11}},
         yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
         series:[
-          {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'},
-           markPoint:{data:markPoints,symbol:'pin',symbolSize:40,label:{show:true,formatter:function(p){return'!';},color:'#0a0a1a',fontSize:14,fontWeight:'bold'},itemStyle:{color:'#fdcb6e'}}}
+          {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
+          {type:'line',data:overlayData,showSymbol:true,symbol:'circle',symbolSize:14,
+           lineStyle:{opacity:0},itemStyle:{color:'#fdcb6e',borderColor:'#fff',borderWidth:2},
+           label:{show:true,formatter:'!',color:'#0a0a1a',fontSize:10,fontWeight:'bold'}}
         ]
       },true);
     }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
