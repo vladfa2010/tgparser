@@ -333,18 +333,19 @@ async function showPostsForDay(idx){
     var data=await api('/analytics/tag-posts-by-day?tag='+encodeURIComponent(currentTag)+'&date='+encodeURIComponent(date));
     var posts=data.posts||[];
     // Load intraday in parallel
-    console.log('DEBUG currentTicker:',currentTicker,'currentTag:',currentTag);
     var intra=await api('/stock/intraday?ticker='+encodeURIComponent(currentTicker)+'&date='+encodeURIComponent(date));
-    console.log('Intraday API response:',JSON.stringify(intra).slice(0,200));
     var times=intra.times||[];
     var ohlc=intra.ohlc||[];
-    console.log('times.length:',times.length,'ohlc.length:',ohlc.length);
-    // News markers: extract HH:MM from published_at
+    // News markers: find time index in times array for category X-axis
+    var timeIndex={};
+    for(var i=0;i<times.length;i++)timeIndex[times[i]]=i;
     var markers=posts.filter(function(p){return p.published}).map(function(p){
       var t=p.published.slice(11,16); // HH:MM
-      var yVal=(ohlc&&ohlc.length)?ohlc[Math.min(Math.floor(ohlc.length/2),ohlc.length-1)][1]:0;
-      return{name:'News',value:[t,yVal],text:p.text?p.text.slice(0,40):''};
-    });
+      var idx=timeIndex[t]!==undefined?timeIndex[t]:-1;
+      if(idx<0)return null;
+      var yVal=(ohlc&&ohlc.length)?ohlc[Math.min(idx,ohlc.length-1)][1]:0;
+      return{name:'News',xAxis:idx,y:yVal,text:p.text?p.text.slice(0,40):''};
+    }).filter(function(m){return m!==null;});
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
       intradayChart.setOption({
@@ -365,7 +366,7 @@ async function showPostsForDay(idx){
         yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
         series:[
           {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
-          {type:'scatter',data:markers,symbol:'triangle',symbolSize:14,itemStyle:{color:'#fdcb6e'},z:10}
+          {type:'scatter',data:markers,symbol:'triangle',symbolSize:16,itemStyle:{color:'#fdcb6e'},z:10,encode:{x:'xAxis',y:'y'}}
         ]
       },true);
     }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
