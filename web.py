@@ -334,8 +334,10 @@ async function showPostsForDay(idx){
     var posts=data.posts||[];
     // Load intraday in parallel
     var intra=await api('/stock/intraday?ticker='+encodeURIComponent(currentTicker)+'&date='+encodeURIComponent(date));
+    console.log('Intraday API response:',JSON.stringify(intra).slice(0,200));
     var times=intra.times||[];
     var ohlc=intra.ohlc||[];
+    console.log('times.length:',times.length,'ohlc.length:',ohlc.length);
     // News markers: extract HH:MM from published_at
     var markers=posts.filter(function(p){return p.published}).map(function(p){
       var t=p.published.slice(11,16); // HH:MM
