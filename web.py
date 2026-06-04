@@ -339,20 +339,26 @@ async function showPostsForDay(idx){
     // News markers: find time index in times array for category X-axis
     var timeIndex={};
     for(var i=0;i<times.length;i++)timeIndex[times[i]]=i;
+    console.log('CANDLE TIMES first5:',times.slice(0,5),'last5:',times.slice(-5));
+    console.log('POSTS count:',posts.length);
+    posts.forEach(function(p,i){console.log('POST',i,'published:',p.published);});
     // Build overlay data: null everywhere except news timestamp = high price
     var overlayData=times.map(function(){return null;});
     var newsMap={};
-    posts.filter(function(p){return p.published;}).forEach(function(p){
+    posts.filter(function(p){return p.published;}).forEach(function(p,pi){
       var h=parseInt(p.published.slice(11,13));
       var m=p.published.slice(14,16);
       h=(h+3)%24;
       var t=(h<10?'0':'')+h+':'+m;
       var idx=timeIndex[t]!==undefined?timeIndex[t]:-1;
+      console.log('POST',pi,'UTC='+p.published.slice(11,16),'MSK='+t,'idx='+idx);
       if(idx>=0&&idx<ohlc.length){
         overlayData[idx]=ohlc[idx][3]; // high price
         newsMap[idx]=p.text?p.text.slice(0,60):'News';
+        console.log('  -> MATCH! high='+ohlc[idx][3]);
       }
     });
+    console.log('overlayData non-null:',overlayData.filter(function(x){return x!==null;}).length);
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
       intradayChart.setOption({
