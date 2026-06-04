@@ -333,6 +333,7 @@ async function showPostsForDay(idx){
     var data=await api('/analytics/tag-posts-by-day?tag='+encodeURIComponent(currentTag)+'&date='+encodeURIComponent(date));
     var posts=data.posts||[];
     // Load intraday in parallel
+    console.log('DEBUG currentTicker:',currentTicker,'currentTag:',currentTag);
     var intra=await api('/stock/intraday?ticker='+encodeURIComponent(currentTicker)+'&date='+encodeURIComponent(date));
     console.log('Intraday API response:',JSON.stringify(intra).slice(0,200));
     var times=intra.times||[];
