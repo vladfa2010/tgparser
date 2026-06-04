@@ -280,8 +280,13 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 </div>
 
 <div class="chart-box">
-<div class="chart-title">&#128172; Telegram News with #<span id="tag-label">LKOH</span></div>
+<div class="chart-title">&#128172; Telegram News with #<span id="tag-label">LKOH</span> <span style="color:#64748b;font-size:13px">— click a bar to see posts</span></div>
 <div class="chart" id="tag-chart"></div>
+</div>
+
+<div id="posts-box" class="chart-box" style="display:none;margin-top:20px">
+<div class="chart-title">&#128220; Posts for <span id="posts-date">-</span></div>
+<div id="posts-list" style="max-height:400px;overflow-y:auto"></div>
 </div>
 </div>
 
@@ -290,6 +295,7 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 'use strict';
 var $=function(id){return document.getElementById(id)};
 var stockChart=null, tagChart=null;
+var currentTicker='', currentTag='', currentFullDates=[], currentDayLabels=[], currentCounts=[];
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
 setTimeout(hideLoader,6000);
@@ -307,6 +313,23 @@ async function api(path){
 
 function getStockChart(){if(!stockChart)stockChart=echarts.init($('stock-chart'),null,{renderer:'canvas'});return stockChart;}
 function getTagChart(){if(!tagChart)tagChart=echarts.init($('tag-chart'),null,{renderer:'canvas'});return tagChart;}
+
+async function showPostsForDay(idx){
+  if(idx<0||!currentFullDates[idx]||currentCounts[idx]===0)return;
+  var date=currentFullDates[idx];
+  var label=currentDayLabels[idx];
+  $('posts-box').style.display='';
+  $('posts-list').innerHTML='<div style="text-align:center;color:#64748b;padding:20px">Loading...</div>';
+  $('posts-date').textContent=label+' ('+date+')';
+  try{
+    var data=await api('/analytics/tag-posts-by-day?tag='+encodeURIComponent(currentTag)+'&date='+encodeURIComponent(date));
+    var posts=data.posts||[];
+    if(!posts.length){$('posts-list').innerHTML='<div style="text-align:center;color:#64748b;padding:20px">No posts for this day</div>';return;}
+    $('posts-list').innerHTML=posts.map(function(p){
+      return'<div style="background:#0a0a1a;border-radius:8px;padding:12px;margin-bottom:8px;font-size:13px"><div style="color:#64748b;font-size:11px;margin-bottom:4px">ID:'+p.id+' | views:'+fmt(p.views)+' | '+esc((p.published||'').slice(0,16).replace('T',' '))+'</div><div style="color:#e2e8f0;white-space:pre-wrap;word-break:break-word">'+esc(p.text||'(no text)')+'</div></div>';
+    }).join('');
+  }catch(e){$('posts-list').innerHTML='<div style="text-align:center;color:#f87171;padding:20px">'+esc(e.message)+'</div>';}
+}
 
 async function loadCharts(){
   var ticker=$('ticker-input').value.trim().toUpperCase();
@@ -333,6 +356,10 @@ async function loadCharts(){
 
     // Tag stats
     var counts=t.counts||[];
+    currentFullDates=t.full_dates||t.days||[];
+    currentDayLabels=t.days||[];
+    currentCounts=counts;
+    currentTag='#'+ticker;
     var total=counts.reduce(function(a,b){return a+b},0);
     var nonzero=counts.filter(function(c){return c>0}).length;
     $('s-total').textContent=fmt(total);
@@ -361,6 +388,8 @@ async function loadCharts(){
 
     // Render tag chart
     if(t.days&&t.days.length){
+      getTagChart().off('click');
+      getTagChart().on('click',function(params){if(params.componentType==='series')showPostsForDay(params.dataIndex);});
       getTagChart().setOption({
         backgroundColor:'transparent',
         tooltip:{trigger:'axis',formatter:function(p){return p[0].name+': '+p[0].value+' posts';}},
@@ -1251,19 +1280,38 @@ async def analytics_tag_daily(tag: str = Query(...), days: int = Query(90, ge=1,
             """), {"since": since, "tag_json": f'["{tag}"]'})
             day_map = {r["d"]: r["cnt"] for r in result.mappings().all()}
 
-            # Fill all days (including zeros)
             labels = []
+            full_dates = []
             counts = []
             for i in range(days + 1):
-                d = (since + timedelta(days=i)).strftime("%m-%d")
-                full = (since + timedelta(days=i)).strftime("%Y-%m-%d")
-                labels.append(d)
-                counts.append(day_map.get(full, 0))
+                dt = since + timedelta(days=i)
+                labels.append(dt.strftime("%m-%d"))
+                full_dates.append(dt.strftime("%Y-%m-%d"))
+                counts.append(day_map.get(dt.strftime("%Y-%m-%d"), 0))
 
-            return {"tag": tag, "days": labels, "counts": counts}
+            return {"tag": tag, "days": labels, "full_dates": full_dates, "counts": counts}
     except Exception as e:
         logger.error(f"/analytics/tag-daily error: {e}"); traceback.print_exc()
         return json_response({"tag": tag, "days": [], "counts": [], "error": str(e)}, 500)
+
+
+@app.get("/api/analytics/tag-posts-by-day")
+async def analytics_tag_posts_by_day(tag: str = Query(...), date: str = Query(...)):
+    try:
+        async with async_session() as session:
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, views_count, published_at
+                FROM posts
+                WHERE (hashtags)::jsonb @> (:tag_json)::jsonb
+                  AND ((published_at AT TIME ZONE 'UTC')::date)::text = :date
+                ORDER BY published_at DESC
+                LIMIT 50
+            """), {"tag_json": f'["{tag}"]', "date": date})
+            rows = result.mappings().all()
+            return {"posts": [{"id": r["telegram_message_id"], "text": r["text"], "views": r["views_count"] or 0, "published": r["published_at"].isoformat() if r["published_at"] else None} for r in rows]}
+    except Exception as e:
+        logger.error(f"/analytics/tag-posts-by-day error: {e}"); traceback.print_exc()
+        return json_response({"posts": [], "error": str(e)}, 500)
 
 
 @app.get("/api/analytics/export-csv")
