@@ -339,7 +339,8 @@ async function showPostsForDay(idx){
     // News markers: extract HH:MM from published_at
     var markers=posts.filter(function(p){return p.published}).map(function(p){
       var t=p.published.slice(11,16); // HH:MM
-      return{name:'News',value:[t,intra.ohlc?ohlc[Math.floor(ohlc.length/2)][1]:0],text:p.text?p.text.slice(0,40):''};
+      var yVal=(ohlc&&ohlc.length)?ohlc[Math.min(Math.floor(ohlc.length/2),ohlc.length-1)][1]:0;
+      return{name:'News',value:[t,yVal],text:p.text?p.text.slice(0,40):''};
     });
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
