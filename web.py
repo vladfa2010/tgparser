@@ -404,6 +404,7 @@ async function loadCharts(){
     currentFullDates=t.full_dates||t.days||[];
     currentDayLabels=t.days||[];
     currentCounts=counts;
+    currentTicker=ticker;
     currentTag='#'+ticker;
     var total=counts.reduce(function(a,b){return a+b},0);
     var nonzero=counts.filter(function(c){return c>0}).length;
