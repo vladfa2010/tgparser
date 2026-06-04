@@ -343,7 +343,7 @@ async function showPostsForDay(idx){
     // Round post time to nearest 10-min candle (MOEX interval=10 = 10-min step)
     var overlayData=times.map(function(){return null;});
     var newsMap={};
-    posts.filter(function(p){return p.published;}).forEach(function(p){
+    posts.filter(function(p){return p.published;}).forEach(function(p,pi){
       var h=parseInt(p.published.slice(11,13));
       var m=parseInt(p.published.slice(14,16));
       h=(h+3)%24; // UTC→MSK
@@ -351,11 +351,14 @@ async function showPostsForDay(idx){
       if(m===60){m=0;h=(h+1)%24;}
       var t=(h<10?'0':'')+h+':'+(m<10?'0':'')+m;
       var idx=timeIndex[t]!==undefined?timeIndex[t]:-1;
+      console.log('POST',pi,'UTC='+p.published.slice(11,16),'MSK='+t,'idx='+idx,'text='+p.text.slice(0,30));
       if(idx>=0&&idx<ohlc.length){
         overlayData[idx]=ohlc[idx][3]; // high price
         newsMap[idx]=p.text?p.text.slice(0,60):'News';
+        console.log('  -> placed at idx',idx);
       }
     });
+    console.log('overlayData non-null:',overlayData.filter(function(x){return x!==null;}).length);
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
       intradayChart.setOption({
