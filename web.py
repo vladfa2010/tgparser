@@ -290,7 +290,7 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 </div>
 
 <div id="intraday-box" class="chart-box" style="display:none;margin-top:20px">
-<div class="chart-title">&#9200; Intraday OHLC + News Markers</div>
+<div class="chart-title">&#9200; 5-Min Intraday OHLC + News Markers</div>
 <div class="chart" id="intraday-chart" style="min-height:300px"></div>
 </div>
 </div>
@@ -1221,7 +1221,7 @@ async def stock_intraday(ticker: str = Query(...), date: str = Query(...)):
         import urllib.request
         from datetime import datetime
         ticker = ticker.upper()
-        # MOEX: interval=10 gives 5-minute candles (MOEX uses 10=5min, 1=1min)
+        # MOEX: interval=10 gives 5-minute candles (MOEX native 5-min timeframe)
         moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={date}&till={date}&interval=10"
         req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -1233,7 +1233,7 @@ async def stock_intraday(ticker: str = Query(...), date: str = Query(...)):
         for row in candles:
             t = datetime.strptime(row[6], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
             times.append(t)
-            ohlc.append([row[0], row[1], row[3], row[2]])
+            ohlc.append([row[0], row[1], row[3], row[2]])  # [open, close, low, high]
 
         return {"ticker": ticker, "date": date, "times": times, "ohlc": ohlc}
     except Exception as e:
