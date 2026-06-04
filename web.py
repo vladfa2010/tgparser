@@ -288,13 +288,18 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 <div class="chart-title">&#128220; Posts for <span id="posts-date">-</span></div>
 <div id="posts-list" style="max-height:400px;overflow-y:auto"></div>
 </div>
+
+<div id="intraday-box" class="chart-box" style="display:none;margin-top:20px">
+<div class="chart-title">&#9200; 5-Min Intraday OHLC + News Markers</div>
+<div class="chart" id="intraday-chart" style="min-height:300px"></div>
+</div>
 </div>
 
 <script>
 (function(){
 'use strict';
 var $=function(id){return document.getElementById(id)};
-var stockChart=null, tagChart=null;
+var stockChart=null, tagChart=null, intradayChart=null;
 var currentTicker='', currentTag='', currentFullDates=[], currentDayLabels=[], currentCounts=[];
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
@@ -319,11 +324,47 @@ async function showPostsForDay(idx){
   var date=currentFullDates[idx];
   var label=currentDayLabels[idx];
   $('posts-box').style.display='';
+  $('intraday-box').style.display='';
   $('posts-list').innerHTML='<div style="text-align:center;color:#64748b;padding:20px">Loading...</div>';
+  if(!intradayChart)intradayChart=echarts.init($('intraday-chart'),null,{renderer:'canvas'});
+  intradayChart.showLoading({text:'Loading 5-min candles...',color:'#00d4aa',textColor:'#64748b',maskColor:'rgba(10,10,26,0.8)'});
   $('posts-date').textContent=label+' ('+date+')';
   try{
     var data=await api('/analytics/tag-posts-by-day?tag='+encodeURIComponent(currentTag)+'&date='+encodeURIComponent(date));
     var posts=data.posts||[];
+    // Load intraday in parallel
+    var intra=await api('/stock/intraday?ticker='+encodeURIComponent(currentTicker)+'&date='+encodeURIComponent(date));
+    var times=intra.times||[];
+    var ohlc=intra.ohlc||[];
+    // News markers: extract HH:MM from published_at
+    var markers=posts.filter(function(p){return p.published}).map(function(p){
+      var t=p.published.slice(11,16); // HH:MM
+      return{name:'News',value:[t,intra.ohlc?ohlc[Math.floor(ohlc.length/2)][1]:0],text:p.text?p.text.slice(0,40):''};
+    });
+    if(times.length&&ohlc.length){
+      intradayChart.hideLoading();
+      intradayChart.setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:function(p){
+          if(p[0]&&p[0].seriesType==='candlestick'){
+            var d=p[0]; var o=d.data[1],cl=d.data[2],lo=d.data[3],hi=d.data[4];
+            var color=cl>=o?'#00d4aa':'#f87171';
+            return d.name+'<br><span style="color:'+color+'">O:'+fmt(o)+' C:'+fmt(cl)+' L:'+fmt(lo)+' H:'+fmt(hi)+'</span>';
+          }
+          if(p[0]&&p[0].seriesType==='scatter'){
+            return'<b>News at '+p[0].name+'</b><br>'+esc(p[0].data.text||'');
+          }
+          return'';
+        }},
+        grid:{left:50,right:20,top:30,bottom:50},
+        xAxis:{type:'category',data:times,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',fontSize:9,interval:11}},
+        yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+        series:[
+          {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
+          {type:'scatter',data:markers,symbol:'triangle',symbolSize:14,itemStyle:{color:'#fdcb6e'},z:10}
+        ]
+      },true);
+    }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
     if(!posts.length){$('posts-list').innerHTML='<div style="text-align:center;color:#64748b;padding:20px">No posts for this day</div>';return;}
     $('posts-list').innerHTML=posts.map(function(p){
       return'<div style="background:#0a0a1a;border-radius:8px;padding:12px;margin-bottom:8px;font-size:13px"><div style="color:#64748b;font-size:11px;margin-bottom:4px">ID:'+p.id+' | views:'+fmt(p.views)+' | '+esc((p.published||'').slice(0,16).replace('T',' '))+'</div><div style="color:#e2e8f0;white-space:pre-wrap;word-break:break-word">'+esc(p.text||'(no text)')+'</div></div>';
@@ -413,7 +454,7 @@ async function loadCharts(){
 }
 
 window.loadCharts=loadCharts;
-window.addEventListener('resize',function(){if(stockChart)stockChart.resize();if(tagChart)tagChart.resize();});
+window.addEventListener('resize',function(){if(stockChart)stockChart.resize();if(tagChart)tagChart.resize();if(intradayChart)intradayChart.resize();});
 loadCharts();
 })();
 </script>
@@ -1165,7 +1206,32 @@ async def stock_price(ticker: str = Query(...), days: int = Query(90, ge=1, le=3
         return {"ticker": ticker, "days": days_list, "ohlc": ohlc}
     except Exception as e:
         logger.error(f"/stock/price error: {e}"); traceback.print_exc()
-        return json_response({"ticker": ticker, "days": [], "closes": [], "error": str(e)}, 500)
+        return json_response({"ticker": ticker, "days": [], "ohlc": [], "error": str(e)}, 500)
+
+
+@app.get("/api/stock/intraday")
+async def stock_intraday(ticker: str = Query(...), date: str = Query(...)):
+    try:
+        import urllib.request
+        from datetime import datetime
+        ticker = ticker.upper()
+        moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={date}&till={date}&interval=5"
+        req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+
+        candles = data.get("candles", {}).get("data", [])
+        times = []
+        ohlc = []
+        for row in candles:
+            t = datetime.strptime(row[6], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+            times.append(t)
+            ohlc.append([row[0], row[1], row[3], row[2]])
+
+        return {"ticker": ticker, "date": date, "times": times, "ohlc": ohlc}
+    except Exception as e:
+        logger.error(f"/stock/intraday error: {e}"); traceback.print_exc()
+        return json_response({"ticker": ticker, "date": date, "times": [], "ohlc": [], "error": str(e)}, 500)
 
 
 # ─── Analytics API ───────────────────────────────────────────
