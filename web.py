@@ -376,7 +376,9 @@ async function showPostsForDay(idx){
           {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
           {type:'line',data:overlayData,showSymbol:true,symbol:'circle',symbolSize:14,
            lineStyle:{opacity:0},itemStyle:{color:'#fdcb6e',borderColor:'#fff',borderWidth:2},
-           label:{show:true,formatter:'!',color:'#0a0a1a',fontSize:10,fontWeight:'bold'}}
+           label:{show:true,formatter:'!',color:'#0a0a1a',fontSize:10,fontWeight:'bold'},
+           emphasis:{scale:1.5,itemStyle:{color:'#fdcb6e',borderColor:'#00d4aa',borderWidth:3}},
+           tooltip:{show:true,formatter:function(p){var i=p.dataIndex;return'<b style=\"color:#fdcb6e\">News '+esc(times[i])+'</b><br>'+esc(newsMap[i]||'');}}}
         ]
       },true);
     }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
