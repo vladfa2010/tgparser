@@ -339,16 +339,17 @@ async function showPostsForDay(idx){
     // News markers: find time index in times array for category X-axis
     var timeIndex={};
     for(var i=0;i<times.length;i++)timeIndex[times[i]]=i;
-    console.log('times[0]='+times[0]+', posts='+posts.length);
     var markers=posts.filter(function(p){return p.published}).map(function(p){
-      var t=p.published.slice(11,16); // HH:MM
+      // Convert UTC → MSK (+3 hours) to match MOEX trading time
+      var h=parseInt(p.published.slice(11,13));
+      var m=p.published.slice(14,16);
+      h=(h+3)%24;
+      var t=(h<10?'0':'')+h+':'+m;
       var idx=timeIndex[t]!==undefined?timeIndex[t]:-1;
-      console.log('post time='+t+' idx='+idx);
       if(idx<0)return null;
       var yVal=(ohlc&&ohlc.length&&idx<ohlc.length)?ohlc[idx][1]:0;
-      return[idx,yVal,p.text?p.text.slice(0,40):'',t]; // [xIndex,y,text,time]
+      return[idx,yVal,p.text?p.text.slice(0,40):'',t];
     }).filter(function(m){return m!==null;});
-    console.log('markers count='+markers.length);
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
       intradayChart.setOption({
