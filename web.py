@@ -151,7 +151,7 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 <button data-tab="tags">Tags 24h</button>
 <a href="/charts">&#128202; Charts</a>
 <a href="/analytics">&#128270; Analytics</a>
-<a href="/tag-daily">&#128197; Daily</a>
+<a href="/tag-daily">&#128200; Stock</a>
 </nav>
 
 <section id="tab-posts">
@@ -203,13 +203,13 @@ loadPosts();
 </html>'''
 
 
-# ─── SPA: Tag Daily Histogram ────────────────────────────────
+# ─── SPA: Stock + Tag Correlation ────────────────────────────
 TAG_DAILY_HTML = '''<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tag Daily — TG Parser</title>
+<title>Stock & Tag — TG Parser</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e2e8f0;line-height:1.5}
@@ -227,22 +227,25 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 .loader-text{margin-top:16px;color:#64748b;font-size:14px}
 
 /* Search */
-.search-box{display:flex;gap:8px;margin-bottom:20px;align-items:center}
+.search-box{display:flex;gap:8px;margin-bottom:20px;align-items:center;flex-wrap:wrap}
 .search-box input{flex:1;background:#0f172a;border:1px solid #1e293b;color:#e2e8f0;padding:12px 16px;border-radius:10px;font-size:14px;outline:none}
 .search-box input:focus{border-color:#00d4aa}
 .search-box button{background:#00d4aa;color:#0a0a1a;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
 .search-box button:hover{opacity:.85}
 .search-box .hint{color:#64748b;font-size:13px;margin-left:12px}
 
-/* Chart */
-.chart-box{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px}
-.chart{min-height:480px}
+/* Charts */
+.chart-box{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px;margin-bottom:20px}
+.chart-title{font-size:16px;font-weight:600;margin-bottom:12px;color:#00d4aa}
+.chart{min-height:360px}
 
 /* Stats */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
 .stat{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;text-align:center}
-.stat-v{font-size:24px;font-weight:700;color:#00d4aa}
+.stat-v{font-size:22px;font-weight:700;color:#00d4aa}
 .stat-l{font-size:11px;color:#64748b;margin-top:4px}
+.stat-v.red{color:#f87171}
+.stat-v.green{color:#00d4aa}
 
 /* Error */
 .err{background:#0f172a;border:1px solid #7f1d1d;border-radius:12px;padding:24px;text-align:center}
@@ -255,23 +258,29 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 <div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
 
 <div class="wrap">
-<header><h1>Tag Daily Histogram</h1><a href="/" class="back">&larr; Back</a></header>
+<header><h1>Stock Price & News Activity</h1><a href="/" class="back">&larr; Back</a></header>
 
 <div class="stats" id="top-stats">
-<div class="stat"><div class="stat-v" id="s-total">-</div><div class="stat-l">Total Posts</div></div>
-<div class="stat"><div class="stat-v" id="s-days">-</div><div class="stat-l">Days with posts</div></div>
-<div class="stat"><div class="stat-v" id="s-peak">-</div><div class="stat-l">Peak Day</div></div>
-<div class="stat"><div class="stat-v" id="s-avg">-</div><div class="stat-l">Avg / Day</div></div>
+<div class="stat"><div class="stat-v" id="s-price">-</div><div class="stat-l">Stock Price</div></div>
+<div class="stat"><div class="stat-v" id="s-change">-</div><div class="stat-l">90d Change</div></div>
+<div class="stat"><div class="stat-v" id="s-total">-</div><div class="stat-l">News Posts</div></div>
+<div class="stat"><div class="stat-v" id="s-days">-</div><div class="stat-l">Days with News</div></div>
 </div>
 
 <div class="search-box">
-<input type="text" id="tag-input" value="#LKOH" placeholder="Enter tag, e.g. #LKOH" onkeydown="if(event.key==='Enter')loadChart()">
-<button onclick="loadChart()">Show</button>
-<span class="hint">Last 90 days</span>
+<input type="text" id="ticker-input" value="LKOH" placeholder="Enter ticker: LKOH, SBER, GAZP, YDEX..." onkeydown="if(event.key==='Enter')loadCharts()">
+<button onclick="loadCharts()">Show</button>
+<span class="hint">90 days | MOEX + Telegram news</span>
 </div>
 
 <div class="chart-box">
-<div class="chart" id="chart"></div>
+<div class="chart-title">&#128200; Stock Price (MOEX)</div>
+<div class="chart" id="stock-chart"></div>
+</div>
+
+<div class="chart-box">
+<div class="chart-title">&#128172; Telegram News with #<span id="tag-label">LKOH</span></div>
+<div class="chart" id="tag-chart"></div>
 </div>
 </div>
 
@@ -279,10 +288,10 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 (function(){
 'use strict';
 var $=function(id){return document.getElementById(id)};
-var chart=null;
+var stockChart=null, tagChart=null;
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
-setTimeout(hideLoader,5000);
+setTimeout(hideLoader,6000);
 
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
@@ -295,55 +304,81 @@ async function api(path){
   return d;
 }
 
-function getChart(){
-  if(!chart) chart=echarts.init($('chart'),null,{renderer:'canvas'});
-  return chart;
-}
+function getStockChart(){if(!stockChart)stockChart=echarts.init($('stock-chart'),null,{renderer:'canvas'});return stockChart;}
+function getTagChart(){if(!tagChart)tagChart=echarts.init($('tag-chart'),null,{renderer:'canvas'});return tagChart;}
 
-async function loadChart(){
-  var tag=$('tag-input').value.trim();
-  if(!tag){$('tag-input').focus();return;}
+async function loadCharts(){
+  var ticker=$('ticker-input').value.trim().toUpperCase();
+  if(!ticker){$('ticker-input').focus();return;}
+  $('tag-label').textContent=ticker;
+  $('s-price').textContent='...';
+  $('s-change').textContent='...';
   $('s-total').textContent='...';
+
   try{
-    var data=await api('/analytics/tag-daily?tag='+encodeURIComponent(tag)+'&days=90');
-    var days=data.days||[];
-    var counts=data.counts||[];
+    // Fetch stock price + tag activity in parallel
+    var s=await api('/stock/price?ticker='+encodeURIComponent(ticker)+'&days=90');
+    var t=await api('/analytics/tag-daily?tag=%23'+encodeURIComponent(ticker)+'&days=90');
+
+    // Stock stats
+    var closes=s.closes||[];
+    var latest=closes.length?closes[closes.length-1]:0;
+    var first=closes.length?closes[0]:0;
+    var pct=first?(((latest-first)/first)*100):0;
+    $('s-price').textContent=latest?fmt(latest)+' RUB':'N/A';
+    var chEl=$('s-change');
+    chEl.textContent=pct?(pct>=0?'+':'')+pct.toFixed(1)+'%':'N/A';
+    chEl.className='stat-v '+(pct>=0?'green':'red');
+
+    // Tag stats
+    var counts=t.counts||[];
     var total=counts.reduce(function(a,b){return a+b},0);
     var nonzero=counts.filter(function(c){return c>0}).length;
-    var peak=Math.max.apply(null,counts)||0;
-    var avg=nonzero?Math.round(total/nonzero):0;
     $('s-total').textContent=fmt(total);
     $('s-days').textContent=nonzero;
-    $('s-peak').textContent=fmt(peak);
-    $('s-avg').textContent=fmt(avg);
 
-    if(!days.length){$('chart').innerHTML='<div class="empty">No data for '+esc(tag)+'</div>';hideLoader();return;}
+    // Render stock chart
+    if(s.days&&s.days.length){
+      getStockChart().setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis',formatter:function(p){var d=p[0];return d.name+'<br>Close: '+fmt(d.value)+' RUB';}},
+        grid:{left:50,right:20,top:20,bottom:70},
+        xAxis:{type:'category',data:s.days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45,fontSize:10}},
+        yAxis:{type:'value',name:'RUB',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',formatter:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}}},
+        series:[{
+          type:'line',data:closes,smooth:true,symbol:'none',lineStyle:{width:2,color:'#00d4aa'},areaStyle:{color:'#00d4aa',opacity:.15},
+          markLine:{silent:true,data:[{type:'average',name:'Avg'}],lineStyle:{color:'#64748b',type:'dashed'}}
+        }]
+      },true);
+    }else{$('stock-chart').innerHTML='<div class="empty">No stock data for '+esc(ticker)+'</div>';}
 
-    getChart().setOption({
-      backgroundColor:'transparent',
-      tooltip:{trigger:'axis',formatter:function(p){return p[0].name+': '+p[0].value+' posts'}},
-      grid:{left:50,right:20,top:20,bottom:70},
-      xAxis:{type:'category',data:days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45,fontSize:10}},
-      yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
-      series:[{
-        type:'bar',
-        data:counts,
-        itemStyle:{color:'#00d4aa',borderRadius:[3,3,0,0]},
-        emphasis:{itemStyle:{color:'#00b894'}},
-        animationDuration:600
-      }]
-    },true);
+    // Render tag chart
+    if(t.days&&t.days.length){
+      getTagChart().setOption({
+        backgroundColor:'transparent',
+        tooltip:{trigger:'axis',formatter:function(p){return p[0].name+': '+p[0].value+' posts';}},
+        grid:{left:50,right:20,top:20,bottom:70},
+        xAxis:{type:'category',data:t.days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45,fontSize:10}},
+        yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+        series:[{
+          type:'bar',data:counts,itemStyle:{color:function(p){return p.value>0?'#6c5ce7':'#1e293b'},borderRadius:[3,3,0,0]},
+          animationDuration:600
+        }]
+      },true);
+    }else{$('tag-chart').innerHTML='<div class="empty">No news data for #'+esc(ticker)+'</div>';}
+
     hideLoader();
   }catch(e){
     console.error(e);
-    $('chart').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+    $('stock-chart').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+    $('tag-chart').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
     hideLoader();
   }
 }
 
-window.loadChart=loadChart;
-window.addEventListener('resize',function(){if(chart)chart.resize()});
-loadChart();
+window.loadCharts=loadCharts;
+window.addEventListener('resize',function(){if(stockChart)stockChart.resize();if(tagChart)tagChart.resize();});
+loadCharts();
 })();
 </script>
 </body>
@@ -1064,6 +1099,37 @@ async def chart_pairs(days: int = Query(7, ge=1, le=90)):
     except Exception as e:
         logger.error(f"/charts/pairs error: {e}"); traceback.print_exc()
         return json_response({"pairs": [], "error": str(e)}, 500)
+
+
+# ─── Stock Price API (MOEX proxy) ────────────────────────────
+@app.get("/api/stock/price")
+async def stock_price(ticker: str = Query(...), days: int = Query(90, ge=1, le=365)):
+    try:
+        import urllib.request
+        from datetime import datetime, timedelta
+        ticker = ticker.upper()
+        till = datetime.now().strftime("%Y-%m-%d")
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={since}&till={till}&interval=24"
+        req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+
+        candles = data.get("candles", {}).get("data", [])
+        if not candles:
+            return json_response({"ticker": ticker, "days": [], "closes": [], "error": "No data from MOEX"})
+
+        days_list = []
+        closes = []
+        for row in candles:
+            d = datetime.strptime(row[6], "%Y-%m-%d %H:%M:%S").strftime("%m-%d")
+            days_list.append(d)
+            closes.append(row[1])  # close price
+
+        return {"ticker": ticker, "days": days_list, "closes": closes}
+    except Exception as e:
+        logger.error(f"/stock/price error: {e}"); traceback.print_exc()
+        return json_response({"ticker": ticker, "days": [], "closes": [], "error": str(e)}, 500)
 
 
 # ─── Analytics API ───────────────────────────────────────────
