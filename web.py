@@ -6,6 +6,8 @@ Unified: posts, tags, analytics. ECharts, dark theme, error recovery.
 import os
 import logging
 import traceback
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Query
@@ -148,6 +150,7 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 <button class="on" data-tab="posts">Posts</button>
 <button data-tab="tags">Tags 24h</button>
 <a href="/charts">&#128202; Charts</a>
+<a href="/analytics">&#128270; Analytics</a>
 </nav>
 
 <section id="tab-posts">
@@ -193,6 +196,202 @@ window.goPage=function(p){page=p;loadPosts()};
 async function loadTags(){if(loading.tags)return;loading.tags=true;$('loader-sub').textContent='Loading tags...';try{var data=await api('/tags/24h');var tags=data.tags||[];$('t-stats').innerHTML='<div class="stat"><div class="stat-v">'+tags.length+'</div><div class="stat-l">Tags</div></div><div class="stat"><div class="stat-v">'+(tags[0]?esc(tags[0].tag):'-')+'</div><div class="stat-l">Top</div></div><div class="stat"><div class="stat-v">'+fmt(tags.reduce(function(a,t){return a+t.count},0))+'</div><div class="stat-l">Tagged</div></div>';if(!tags.length){$('t-list').innerHTML='<div class="empty">No tags in 24h</div>';hideLoader();loading.tags=false;return}var maxC=Math.max.apply(null,tags.map(function(t){return t.count}));var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];$('t-list').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:16px">Last 24 hours — tag ranking by frequency</div>'+tags.map(function(t,i){var pct=Math.round((t.count/maxC)*100);return'<div style="display:flex;align-items:center;gap:15px;margin-bottom:10px;padding:14px 16px;background:#0f172a;border:1px solid #1e293b;border-radius:10px"><div style="min-width:160px;font-weight:600;color:#00d4aa;font-size:14px">'+esc(t.tag)+'</div><div style="flex:1;height:28px;background:#0a0a1a;border-radius:6px;overflow:hidden"><div style="height:100%;border-radius:6px;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:600;color:#fff;transition:width .8s;width:'+pct+'%;background:'+colors[i%colors.length]+'">'+t.count+' posts</div></div><div style="min-width:90px;text-align:right;color:#64748b;font-size:12px">'+fmt(t.total_views)+' views<br>~'+fmt(t.avg_views)+'</div></div>'}).join('');hideLoader()}catch(e){console.error(e);showError('t-list',e.message)}finally{loading.tags=false}}
 
 loadPosts();
+})();
+</script>
+</body>
+</html>'''
+
+
+# ─── SPA: Analytics (Tag Deep Dive) ──────────────────────────
+ANALYTICS_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tag Analytics — TG Parser</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e2e8f0;line-height:1.5}
+.wrap{max-width:1200px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px}
+h1{color:#00d4aa;font-size:28px;font-weight:700}
+.back{color:#64748b;text-decoration:none;font-size:14px}
+.back:hover{color:#00d4aa}
+
+/* Loader */
+#loader{position:fixed;inset:0;background:#0a0a1a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .4s}
+#loader.done{opacity:0;pointer-events:none}
+.loader-ring{width:48px;height:48px;border:3px solid #1e293b;border-top-color:#00d4aa;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{margin-top:16px;color:#64748b;font-size:14px}
+
+/* Search */
+.search-box{display:flex;gap:8px;margin-bottom:24px}
+.search-box input{flex:1;background:#0f172a;border:1px solid #1e293b;color:#e2e8f0;padding:12px 16px;border-radius:10px;font-size:14px;outline:none}
+.search-box input:focus{border-color:#00d4aa}
+.search-box button{background:#00d4aa;color:#0a0a1a;border:none;padding:12px 24px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
+.search-box button:hover{opacity:.85}
+
+/* Sections */
+.section{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px;margin-bottom:20px}
+.section h2{font-size:18px;color:#00d4aa;margin-bottom:16px}
+.section h2 span{color:#64748b;font-size:13px;font-weight:400;margin-left:8px}
+
+/* Tag list */
+.tag-list{display:flex;flex-direction:column;gap:8px}
+.tag-row{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0a0a1a;border-radius:8px;cursor:pointer;transition:.15s}
+.tag-row:hover{background:#1e293b}
+.tag-name{min-width:140px;font-weight:600;color:#00d4aa;font-size:14px}
+.tag-bar{flex:1;height:24px;background:#0f172a;border-radius:6px;overflow:hidden}
+.tag-bar-fill{height:100%;border-radius:6px;display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:600;color:#fff;transition:width .6s}
+.tag-count{min-width:60px;text-align:right;color:#64748b;font-size:12px}
+.tag-views{color:#94a3b8;font-size:11px;min-width:80px;text-align:right}
+
+/* Trends */
+.trend-up{color:#00d4aa}
+.trend-down{color:#f87171}
+.trend-same{color:#64748b}
+.trend-pct{font-size:12px;font-weight:600;margin-left:6px}
+
+/* Word cloud */
+.cloud{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;min-height:200px;padding:20px}
+.cloud-tag{padding:8px 16px;border-radius:20px;font-weight:600;cursor:pointer;transition:transform .2s,opacity .2s;opacity:.8}
+.cloud-tag:hover{transform:scale(1.1);opacity:1}
+
+/* Posts by tag */
+.posts-by-tag{margin-top:12px}
+.post-mini{background:#0a0a1a;border-radius:8px;padding:12px;margin-bottom:8px;font-size:13px}
+.post-mini-head{color:#64748b;font-size:11px;margin-bottom:4px}
+.post-mini-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:80px;overflow:hidden}
+
+/* Export btn */
+.export-btn{background:#0f172a;border:1px solid #00d4aa;color:#00d4aa;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
+.export-btn:hover{background:#00d4aa;color:#0a0a1a}
+
+/* Error */
+.err{background:#0f172a;border:1px solid #7f1d1d;border-radius:12px;padding:24px;text-align:center}
+.err h3{color:#f87171;margin-bottom:8px}
+.err p{color:#94a3b8;margin-bottom:16px}
+.empty{text-align:center;color:#64748b;padding:40px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading analytics...</div></div>
+
+<div class="wrap">
+<header><h1>Tag Analytics</h1><a href="/" class="back">&larr; Back to Dashboard</a></header>
+
+<div class="search-box">
+<input type="text" id="tag-search" placeholder="Search tag (e.g. #россия)...
+" onkeydown="if(event.key==='Enter')searchTag()">
+<button onclick="searchTag()">Search Posts</button>
+<a href="/api/analytics/export-csv" class="export-btn" target="_blank">Export CSV</a>
+</div>
+
+<div class="section">
+<h2>All-Time Top Tags <span>by frequency</span></h2>
+<div id="alltime-list"><div class="empty">Loading...</div></div>
+</div>
+
+<div class="section">
+<h2>Trending <span>this week vs last week</span></h2>
+<div id="trends-list"><div class="empty">Loading...</div></div>
+</div>
+
+<div class="section">
+<h2>Tag Cloud</h2>
+<div id="cloud" class="cloud"><div class="empty">Loading...</div></div>
+</div>
+
+<div id="posts-section" class="section" style="display:none">
+<h2 id="posts-title">Posts</h2>
+<div id="posts-list" class="posts-by-tag"></div>
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id)};
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,6000);
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
+
+async function api(path){
+  var r=await fetch('/api'+path,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var d=await r.json();
+  if(d.error) throw new Error(d.error);
+  return d;
+}
+
+async function loadAll(){
+  try{
+    var t=await api('/analytics/alltime-tags');
+    renderAllTime(t.tags||[]);
+    var tr=await api('/analytics/trends');
+    renderTrends(tr.trends||[]);
+    hideLoader();
+  }catch(e){
+    console.error(e);
+    $('alltime-list').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+    $('trends-list').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+    hideLoader();
+  }
+}
+
+function renderAllTime(tags){
+  if(!tags.length){$('alltime-list').innerHTML='<div class="empty">No tagged posts</div>';return;}
+  var maxC=Math.max.apply(null,tags.map(function(t){return t.count||0}))||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];
+  $('alltime-list').innerHTML=tags.slice(0,50).map(function(t,i){
+    var pct=Math.round(((t.count||0)/maxC)*100);
+    return'<div class="tag-row" onclick="searchTag(&quot;'+esc(t.tag)+'&quot;)"><div class="tag-name">'+esc(t.tag)+'</div><div class="tag-bar"><div class="tag-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(t.count)+'</div></div><div class="tag-views">'+fmt(t.total_views||0)+' views</div></div>';
+  }).join('');
+  renderCloud(tags);
+}
+
+function renderTrends(trends){
+  if(!trends.length){$('trends-list').innerHTML='<div class="empty">No trend data</div>';return;}
+  $('trends-list').innerHTML=trends.map(function(t){
+    var cls=t.pct>0?'trend-up':t.pct<0?'trend-down':'trend-same';
+    var arrow=t.pct>0?'&#9650;':t.pct<0?'&#9660;':'&#9644;';
+    return'<div class="tag-row"><div class="tag-name">'+esc(t.tag)+'</div><div style="flex:1"></div><div class="tag-count">'+fmt(t.this_week)+' this week</div><div class="tag-count">'+fmt(t.last_week)+' last</div><div class="trend-pct '+cls+'">'+arrow+' '+Math.abs(t.pct)+'%</div></div>';
+  }).join('');
+}
+
+function renderCloud(tags){
+  if(!tags.length){$('cloud').innerHTML='<div class="empty">No data</div>';return;}
+  var maxC=Math.max.apply(null,tags.map(function(t){return t.count||0}))||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+  $('cloud').innerHTML=tags.slice(0,40).map(function(t,i){
+    var size=10+Math.round(((t.count||0)/maxC)*26);
+    return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40" onclick="searchTag(&quot;'+esc(t.tag)+'&quot;)">'+esc(t.tag)+'</span>';
+  }).join('');
+}
+
+async function searchTag(tag){
+  var q=tag||$('tag-search').value.trim();
+  if(!q)return;
+  $('tag-search').value=q;
+  $('posts-section').style.display='';
+  $('posts-list').innerHTML='<div class="empty">Loading posts...</div>';
+  $('posts-title').innerHTML='Posts with '+esc(q);
+  try{
+    var data=await api('/analytics/posts-by-tag?tag='+encodeURIComponent(q));
+    var posts=data.posts||[];
+    if(!posts.length){$('posts-list').innerHTML='<div class="empty">No posts found</div>';return;}
+    $('posts-list').innerHTML=posts.map(function(p){
+      return'<div class="post-mini"><div class="post-mini-head">ID:'+p.id+' | views:'+fmt(p.views)+' | '+esc((p.published||'').slice(0,16))+'</div><div class="post-mini-body">'+esc(p.text||'(no text)')+'</div></div>';
+    }).join('');
+  }catch(e){
+    $('posts-list').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+  }
+}
+
+window.searchTag=searchTag;
+loadAll();
 })();
 </script>
 </body>
@@ -492,6 +691,11 @@ async def charts_page():
     return HTMLResponse(content=CHARTS_HTML)
 
 
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page():
+    return HTMLResponse(content=ANALYTICS_HTML)
+
+
 # ─── API: Stats ──────────────────────────────────────────────
 @app.get("/api/stats")
 async def api_stats():
@@ -707,3 +911,138 @@ async def chart_pairs(days: int = Query(7, ge=1, le=90)):
     except Exception as e:
         logger.error(f"/charts/pairs error: {e}"); traceback.print_exc()
         return json_response({"pairs": [], "error": str(e)}, 500)
+
+
+# ─── Analytics API ───────────────────────────────────────────
+@app.get("/api/analytics/alltime-tags")
+async def analytics_alltime_tags(limit: int = Query(100, ge=1, le=500)):
+    try:
+        async with async_session() as session:
+            result = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts
+                    WHERE hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as hashtag,
+                       COUNT(*) as cnt,
+                       SUM(views_count) as total_views,
+                       AVG(views_count)::int as avg_views
+                FROM tagged
+                GROUP BY json_array_elements_text(hashtags)
+                ORDER BY cnt DESC LIMIT :limit
+            """), {"limit": limit})
+            rows = result.mappings().all()
+            return {"tags": [{"tag": r["hashtag"], "count": r["cnt"], "total_views": r["total_views"] or 0, "avg_views": r["avg_views"] or 0} for r in rows]}
+    except Exception as e:
+        logger.error(f"/analytics/alltime-tags error: {e}"); traceback.print_exc()
+        return json_response({"tags": [], "error": str(e)}, 500)
+
+
+@app.get("/api/analytics/trends")
+async def analytics_trends():
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=1))
+            # This week
+            this_week = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :since
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as hashtag, COUNT(*) as cnt
+                FROM tagged GROUP BY json_array_elements_text(hashtags)
+                ORDER BY cnt DESC LIMIT 30
+            """), {"since": since})
+            this_map = {r["hashtag"]: r["cnt"] for r in this_week.mappings().all()}
+
+            # Last week (7-14 days ago)
+            last_since = since - timedelta(days=7)
+            last_week = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :last_since
+                      AND published_at <= :since
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as hashtag, COUNT(*) as cnt
+                FROM tagged GROUP BY json_array_elements_text(hashtags)
+            """), {"last_since": last_since, "since": since})
+            last_map = {r["hashtag"]: r["cnt"] for r in last_week.mappings().all()}
+
+            # Calculate trends
+            trends = []
+            all_tags = set(list(this_map.keys()) + list(last_map.keys()))
+            for tag in all_tags:
+                this_c = this_map.get(tag, 0)
+                last_c = last_map.get(tag, 0)
+                if this_c + last_c < 3:
+                    continue
+                if last_c == 0:
+                    pct = 100
+                else:
+                    pct = int(((this_c - last_c) / last_c) * 100)
+                trends.append({"tag": tag, "this_week": this_c, "last_week": last_c, "pct": pct})
+            trends.sort(key=lambda x: abs(x["pct"]), reverse=True)
+            return {"trends": trends[:30]}
+    except Exception as e:
+        logger.error(f"/analytics/trends error: {e}"); traceback.print_exc()
+        return json_response({"trends": [], "error": str(e)}, 500)
+
+
+@app.get("/api/analytics/posts-by-tag")
+async def analytics_posts_by_tag(tag: str = Query(...), page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=50)):
+    try:
+        async with async_session() as session:
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, views_count, published_at
+                FROM posts
+                WHERE (hashtags)::jsonb @> (:tag_json)::jsonb
+                ORDER BY published_at DESC
+                LIMIT :limit OFFSET :offset
+            """), {"tag_json": f'["{tag}"]', "limit": limit, "offset": (page - 1) * limit})
+            rows = result.mappings().all()
+            return {"posts": [{"id": r["telegram_message_id"], "text": r["text"], "views": r["views_count"] or 0, "published": r["published_at"].isoformat() if r["published_at"] else None} for r in rows]}
+    except Exception as e:
+        logger.error(f"/analytics/posts-by-tag error: {e}"); traceback.print_exc()
+        return json_response({"posts": [], "error": str(e)}, 500)
+
+
+@app.get("/api/analytics/export-csv")
+async def analytics_export_csv():
+    try:
+        async with async_session() as session:
+            result = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts
+                    WHERE hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as hashtag,
+                       COUNT(*) as cnt,
+                       SUM(views_count) as total_views,
+                       AVG(views_count)::int as avg_views
+                FROM tagged
+                GROUP BY json_array_elements_text(hashtags)
+                ORDER BY cnt DESC
+            """))
+            rows = result.mappings().all()
+
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["hashtag", "count", "total_views", "avg_views"])
+            for r in rows:
+                writer.writerow([r["hashtag"], r["cnt"], r["total_views"] or 0, r["avg_views"] or 0])
+
+            return JSONResponse(
+                content={"csv": output.getvalue(), "rows": len(rows)},
+                headers={"Content-Type": "text/csv"}
+            )
+    except Exception as e:
+        logger.error(f"/analytics/export-csv error: {e}"); traceback.print_exc()
+        return json_response({"error": str(e)}, 500)
