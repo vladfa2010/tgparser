@@ -1,14 +1,16 @@
 # TG Parser — Telegram Channel Parser
 
-Parser for @markettwits Telegram channel. Saves posts to PostgreSQL with hashtags, views, media metadata.
+Parser for @markettwits Telegram channel. Saves posts to PostgreSQL with full hashtag analytics, daily histograms, trend detection, and CSV export.
 
 ## Stack
 
 - **Telethon** — MTProto client for reading Telegram channels
-- **PostgreSQL** — data storage
+- **PostgreSQL** — data storage (334K+ posts)
 - **SQLAlchemy 2.0** — async ORM
+- **FastAPI** — web dashboard with SPA
+- **ECharts 5.5** — interactive charts (bubble, heatmap, histogram, timeline)
 - **Docker** — containerization
-- **Render** — hosting (cron job + managed PostgreSQL)
+- **Render** — hosting (cron job + web service + managed PostgreSQL)
 
 ## Known Issues
 
@@ -114,14 +116,26 @@ posts        — posts (text, hashtags, views, media, forwards)
 parse_logs   — parsing history (posts count, duration, errors)
 ```
 
+## Dashboard Pages
+
+| Page | Path | Features |
+|------|------|----------|
+| **Posts** | `/` | Browse posts, search, pagination, tags 24h tab |
+| **Charts** | `/charts` | 5 ECharts visualizations: bubble, heatmap, histogram, timeline, pairs |
+| **Analytics** | `/analytics` | All-time top tags, trending, tag cloud, search by tag, CSV export |
+| **Tag Daily** | `/tag-daily` | Histogram of posts per day for any tag (90 days), customizable input |
+
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `markettwits_parser.py` | Main parser |
+| `web.py` | FastAPI dashboard (SPA + 15 API endpoints) |
 | `generate_session.py` | Generate TG_STRING_SESSION locally |
+| `fix_hashtags.py` | Retroactive hashtag extraction for old posts |
+| `query.py` | CLI database query tool |
 | `Dockerfile` | Container image |
 | `docker-compose.yml` | Local dev stack |
-| `render.yaml` | Render blueprint (optional) |
+| `render.yaml` | Render blueprint |
 | `requirements.txt` | Python deps |
 | `.env.example` | Env template |
