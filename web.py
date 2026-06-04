@@ -151,6 +151,7 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 <button data-tab="tags">Tags 24h</button>
 <a href="/charts">&#128202; Charts</a>
 <a href="/analytics">&#128270; Analytics</a>
+<a href="/tag-daily">&#128197; Daily</a>
 </nav>
 
 <section id="tab-posts">
@@ -196,6 +197,153 @@ window.goPage=function(p){page=p;loadPosts()};
 async function loadTags(){if(loading.tags)return;loading.tags=true;$('loader-sub').textContent='Loading tags...';try{var data=await api('/tags/24h');var tags=data.tags||[];$('t-stats').innerHTML='<div class="stat"><div class="stat-v">'+tags.length+'</div><div class="stat-l">Tags</div></div><div class="stat"><div class="stat-v">'+(tags[0]?esc(tags[0].tag):'-')+'</div><div class="stat-l">Top</div></div><div class="stat"><div class="stat-v">'+fmt(tags.reduce(function(a,t){return a+t.count},0))+'</div><div class="stat-l">Tagged</div></div>';if(!tags.length){$('t-list').innerHTML='<div class="empty">No tags in 24h</div>';hideLoader();loading.tags=false;return}var maxC=Math.max.apply(null,tags.map(function(t){return t.count}));var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];$('t-list').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:16px">Last 24 hours — tag ranking by frequency</div>'+tags.map(function(t,i){var pct=Math.round((t.count/maxC)*100);return'<div style="display:flex;align-items:center;gap:15px;margin-bottom:10px;padding:14px 16px;background:#0f172a;border:1px solid #1e293b;border-radius:10px"><div style="min-width:160px;font-weight:600;color:#00d4aa;font-size:14px">'+esc(t.tag)+'</div><div style="flex:1;height:28px;background:#0a0a1a;border-radius:6px;overflow:hidden"><div style="height:100%;border-radius:6px;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:600;color:#fff;transition:width .8s;width:'+pct+'%;background:'+colors[i%colors.length]+'">'+t.count+' posts</div></div><div style="min-width:90px;text-align:right;color:#64748b;font-size:12px">'+fmt(t.total_views)+' views<br>~'+fmt(t.avg_views)+'</div></div>'}).join('');hideLoader()}catch(e){console.error(e);showError('t-list',e.message)}finally{loading.tags=false}}
 
 loadPosts();
+})();
+</script>
+</body>
+</html>'''
+
+
+# ─── SPA: Tag Daily Histogram ────────────────────────────────
+TAG_DAILY_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tag Daily — TG Parser</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e2e8f0;line-height:1.5}
+.wrap{max-width:1200px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px}
+h1{color:#00d4aa;font-size:28px;font-weight:700}
+.back{color:#64748b;text-decoration:none;font-size:14px}
+.back:hover{color:#00d4aa}
+
+/* Loader */
+#loader{position:fixed;inset:0;background:#0a0a1a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .4s}
+#loader.done{opacity:0;pointer-events:none}
+.loader-ring{width:48px;height:48px;border:3px solid #1e293b;border-top-color:#00d4aa;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{margin-top:16px;color:#64748b;font-size:14px}
+
+/* Search */
+.search-box{display:flex;gap:8px;margin-bottom:20px;align-items:center}
+.search-box input{flex:1;background:#0f172a;border:1px solid #1e293b;color:#e2e8f0;padding:12px 16px;border-radius:10px;font-size:14px;outline:none}
+.search-box input:focus{border-color:#00d4aa}
+.search-box button{background:#00d4aa;color:#0a0a1a;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
+.search-box button:hover{opacity:.85}
+.search-box .hint{color:#64748b;font-size:13px;margin-left:12px}
+
+/* Chart */
+.chart-box{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px}
+.chart{min-height:480px}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;text-align:center}
+.stat-v{font-size:24px;font-weight:700;color:#00d4aa}
+.stat-l{font-size:11px;color:#64748b;margin-top:4px}
+
+/* Error */
+.err{background:#0f172a;border:1px solid #7f1d1d;border-radius:12px;padding:24px;text-align:center}
+.err h3{color:#f87171;margin-bottom:8px}
+.empty{text-align:center;color:#64748b;padding:60px;font-size:14px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
+
+<div class="wrap">
+<header><h1>Tag Daily Histogram</h1><a href="/" class="back">&larr; Back</a></header>
+
+<div class="stats" id="top-stats">
+<div class="stat"><div class="stat-v" id="s-total">-</div><div class="stat-l">Total Posts</div></div>
+<div class="stat"><div class="stat-v" id="s-days">-</div><div class="stat-l">Days with posts</div></div>
+<div class="stat"><div class="stat-v" id="s-peak">-</div><div class="stat-l">Peak Day</div></div>
+<div class="stat"><div class="stat-v" id="s-avg">-</div><div class="stat-l">Avg / Day</div></div>
+</div>
+
+<div class="search-box">
+<input type="text" id="tag-input" value="#LKOH" placeholder="Enter tag, e.g. #LKOH" onkeydown="if(event.key==='Enter')loadChart()">
+<button onclick="loadChart()">Show</button>
+<span class="hint">Last 90 days</span>
+</div>
+
+<div class="chart-box">
+<div class="chart" id="chart"></div>
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id)};
+var chart=null;
+
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,5000);
+
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
+
+async function api(path){
+  var r=await fetch('/api'+path,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var d=await r.json();
+  if(d.error) throw new Error(d.error);
+  return d;
+}
+
+function getChart(){
+  if(!chart) chart=echarts.init($('chart'),null,{renderer:'canvas'});
+  return chart;
+}
+
+async function loadChart(){
+  var tag=$('tag-input').value.trim();
+  if(!tag){$('tag-input').focus();return;}
+  $('s-total').textContent='...';
+  try{
+    var data=await api('/analytics/tag-daily?tag='+encodeURIComponent(tag)+'&days=90');
+    var days=data.days||[];
+    var counts=data.counts||[];
+    var total=counts.reduce(function(a,b){return a+b},0);
+    var nonzero=counts.filter(function(c){return c>0}).length;
+    var peak=Math.max.apply(null,counts)||0;
+    var avg=nonzero?Math.round(total/nonzero):0;
+    $('s-total').textContent=fmt(total);
+    $('s-days').textContent=nonzero;
+    $('s-peak').textContent=fmt(peak);
+    $('s-avg').textContent=fmt(avg);
+
+    if(!days.length){$('chart').innerHTML='<div class="empty">No data for '+esc(tag)+'</div>';hideLoader();return;}
+
+    getChart().setOption({
+      backgroundColor:'transparent',
+      tooltip:{trigger:'axis',formatter:function(p){return p[0].name+': '+p[0].value+' posts'}},
+      grid:{left:50,right:20,top:20,bottom:70},
+      xAxis:{type:'category',data:days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45,fontSize:10}},
+      yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+      series:[{
+        type:'bar',
+        data:counts,
+        itemStyle:{color:'#00d4aa',borderRadius:[3,3,0,0]},
+        emphasis:{itemStyle:{color:'#00b894'}},
+        animationDuration:600
+      }]
+    },true);
+    hideLoader();
+  }catch(e){
+    console.error(e);
+    $('chart').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+    hideLoader();
+  }
+}
+
+window.loadChart=loadChart;
+window.addEventListener('resize',function(){if(chart)chart.resize()});
+loadChart();
 })();
 </script>
 </body>
@@ -696,6 +844,11 @@ async def analytics_page():
     return HTMLResponse(content=ANALYTICS_HTML)
 
 
+@app.get("/tag-daily", response_class=HTMLResponse)
+async def tag_daily_page():
+    return HTMLResponse(content=TAG_DAILY_HTML)
+
+
 # ─── API: Stats ──────────────────────────────────────────────
 @app.get("/api/stats")
 async def api_stats():
@@ -1010,6 +1163,34 @@ async def analytics_posts_by_tag(tag: str = Query(...), page: int = Query(1, ge=
     except Exception as e:
         logger.error(f"/analytics/posts-by-tag error: {e}"); traceback.print_exc()
         return json_response({"posts": [], "error": str(e)}, 500)
+
+
+@app.get("/api/analytics/tag-daily")
+async def analytics_tag_daily(tag: str = Query(...), days: int = Query(90, ge=1, le=365)):
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT ((published_at AT TIME ZONE 'UTC')::date)::text as d, COUNT(*) as cnt
+                FROM posts WHERE published_at > :since
+                  AND (hashtags)::jsonb @> (:tag_json)::jsonb
+                GROUP BY d ORDER BY d
+            """), {"since": since, "tag_json": f'["{tag}"]'})
+            day_map = {r["d"]: r["cnt"] for r in result.mappings().all()}
+
+            # Fill all days (including zeros)
+            labels = []
+            counts = []
+            for i in range(days + 1):
+                d = (since + timedelta(days=i)).strftime("%m-%d")
+                full = (since + timedelta(days=i)).strftime("%Y-%m-%d")
+                labels.append(d)
+                counts.append(day_map.get(full, 0))
+
+            return {"tag": tag, "days": labels, "counts": counts}
+    except Exception as e:
+        logger.error(f"/analytics/tag-daily error: {e}"); traceback.print_exc()
+        return json_response({"tag": tag, "days": [], "counts": [], "error": str(e)}, 500)
 
 
 @app.get("/api/analytics/export-csv")
