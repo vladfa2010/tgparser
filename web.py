@@ -339,16 +339,14 @@ async function showPostsForDay(idx){
     // News markers: find time index in times array for category X-axis
     var timeIndex={};
     for(var i=0;i<times.length;i++)timeIndex[times[i]]=i;
-    var markers=posts.filter(function(p){return p.published}).map(function(p){
-      // Convert UTC → MSK (+3 hours) to match MOEX trading time
+    var markPoints=posts.filter(function(p){return p.published}).map(function(p){
       var h=parseInt(p.published.slice(11,13));
       var m=p.published.slice(14,16);
       h=(h+3)%24;
       var t=(h<10?'0':'')+h+':'+m;
       var idx=timeIndex[t]!==undefined?timeIndex[t]:-1;
       if(idx<0)return null;
-      var yVal=(ohlc&&ohlc.length&&idx<ohlc.length)?ohlc[idx][1]:0;
-      return[idx,yVal,p.text?p.text.slice(0,40):'',t];
+      return{name:'News',xAxis:idx,y:'max',value:p.text?p.text.slice(0,50):'News',itemStyle:{color:'#fdcb6e'}};
     }).filter(function(m){return m!==null;});
     if(times.length&&ohlc.length){
       intradayChart.hideLoading();
@@ -360,9 +358,8 @@ async function showPostsForDay(idx){
             var color=cl>=o?'#00d4aa':'#f87171';
             return d.name+'<br><span style="color:'+color+'">O:'+fmt(o)+' C:'+fmt(cl)+' L:'+fmt(lo)+' H:'+fmt(hi)+'</span>';
           }
-          if(p[0]&&p[0].seriesType==='scatter'){
-            var d=p[0].data;
-            return'<b>News at '+d[3]+'</b><br>'+esc(d[2]||'');
+          if(p[0]&&p[0].seriesType==='markPoint'){
+            return'<b>News</b><br>'+esc(p[0].data.value||'');
           }
           return'';
         }},
@@ -370,8 +367,8 @@ async function showPostsForDay(idx){
         xAxis:{type:'category',data:times,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',fontSize:9,interval:11}},
         yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
         series:[
-          {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
-          {type:'scatter',data:markers,symbol:'triangle',symbolSize:16,itemStyle:{color:'#fdcb6e'},z:10}
+          {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'},
+           markPoint:{data:markPoints,symbol:'pin',symbolSize:40,label:{show:true,formatter:function(p){return'!';},color:'#0a0a1a',fontSize:14,fontWeight:'bold'},itemStyle:{color:'#fdcb6e'}}}
         ]
       },true);
     }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
