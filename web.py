@@ -1221,35 +1221,19 @@ async def stock_intraday(ticker: str = Query(...), date: str = Query(...)):
         import urllib.request
         from datetime import datetime
         ticker = ticker.upper()
-        # MOEX has no native interval=5. Use interval=1 (1-min) with pagination,
-        # then aggregate every 5 candles into one 5-min OHLC.
-        all_candles = []
-        start = 0
-        while True:
-            moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={date}&till={date}&interval=1&start={start}"
-            req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
-            batch = data.get("candles", {}).get("data", [])
-            if not batch:
-                break
-            all_candles.extend(batch)
-            start += len(batch)
-            if len(batch) < 500:
-                break
+        # MOEX: interval=10 = 5-minute candles (MOEX numbering convention)
+        moex_url = f"https://iss.moex.com/iss/engines/stock/markets/shares/securities/{ticker}/candles.json?from={date}&till={date}&interval=10"
+        req = urllib.request.Request(moex_url, headers={"User-Agent": "tgparser/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
 
-        # Aggregate every 5 x 1-min candles into one 5-min OHLC
+        candles = data.get("candles", {}).get("data", [])
         times = []
         ohlc = []
-        for i in range(0, len(all_candles) - 4, 5):
-            chunk = all_candles[i:i + 5]
-            o = chunk[0][0]   # open of first
-            c = chunk[-1][1]  # close of last
-            h = max(row[2] for row in chunk)  # max high
-            l = min(row[3] for row in chunk)  # min low
-            t = datetime.strptime(chunk[-1][6], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+        for row in candles:
+            t = datetime.strptime(row[6], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
             times.append(t)
-            ohlc.append([o, c, l, h])
+            ohlc.append([row[0], row[1], row[3], row[2]])  # [open, close, low, high]
 
         return {"ticker": ticker, "date": date, "times": times, "ohlc": ohlc}
     except Exception as e:
