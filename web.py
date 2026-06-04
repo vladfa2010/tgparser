@@ -364,9 +364,9 @@ async function showPostsForDay(idx){
       intradayChart.setOption({
         backgroundColor:'transparent',
         tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:function(p){
-          var i=p[0].dataIndex;
-          if(newsMap[i]&&p[0]&&p[0].seriesIndex===1){
-            return'<b style=\"color:#fdcb6e\">News at '+esc(times[i])+'</b><br>'+esc(newsMap[i]);
+          if(p[0]&&p[0].seriesType==='scatter'){
+            var d=p[0].data;
+            return'<b style=\"color:#fdcb6e\">News '+esc(times[d[0]])+'</b><br>'+esc(d[2]||'');
           }
           var d=p[0]; var o=d.data[1],cl=d.data[2],lo=d.data[3],hi=d.data[4];
           var color=cl>=o?'#00d4aa':'#f87171';
@@ -375,13 +375,18 @@ async function showPostsForDay(idx){
         grid:{left:50,right:20,top:30,bottom:50},
         xAxis:{type:'category',data:times,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',fontSize:9,interval:11}},
         yAxis:{type:'value',name:'RUB',scale:true,splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+        // Build scatter data: [index, high, text] for each news
+        var scatterData=[];
+        for(var i=0;i<overlayData.length;i++){
+          if(overlayData[i]!==null)scatterData.push([i,overlayData[i],newsMap[i]]);
+        }
         series:[
           {type:'candlestick',data:ohlc,itemStyle:{color:'#00d4aa',color0:'#f87171',borderColor:'#00d4aa',borderColor0:'#f87171'}},
-          {type:'line',data:overlayData,showSymbol:true,symbol:'circle',symbolSize:14,
-           lineStyle:{opacity:0},itemStyle:{color:'#fdcb6e',borderColor:'#fff',borderWidth:2},
+          {type:'scatter',data:scatterData,symbol:'circle',symbolSize:14,
+           itemStyle:{color:'#fdcb6e',borderColor:'#fff',borderWidth:2},
            label:{show:true,formatter:'!',color:'#0a0a1a',fontSize:10,fontWeight:'bold'},
            emphasis:{scale:1.5,itemStyle:{color:'#fdcb6e',borderColor:'#00d4aa',borderWidth:3}},
-           tooltip:{trigger:'item',show:true,formatter:function(p){var i=p.dataIndex;return'<b style=\"color:#fdcb6e\">News '+esc(times[i])+'</b><br>'+esc(newsMap[i]||'');}}}
+           tooltip:{trigger:'item',show:true,formatter:function(p){var d=p.data;return'<b style=\"color:#fdcb6e\">News</b><br>'+esc(d[2]||'');}}}
         ]
       },true);
     }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
