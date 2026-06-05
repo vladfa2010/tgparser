@@ -1201,17 +1201,50 @@ async def chart_pairs(days: int = Query(7, ge=1, le=90)):
 
 
 # ─── RSS Feed ────────────────────────────────────────────────
+# Optional comma-separated list of channel usernames to include.
+# Falls back to single "markettwits" if env not set.
+_RSS_CHANNELS = [c.strip() for c in os.getenv("RSS_CHANNELS", os.getenv("CHANNELS", "markettwits")).split(",") if c.strip()]
+
+
 @app.get("/rss")
-async def rss_feed(limit: int = Query(50, ge=1, le=200)):
+async def rss_feed(
+    limit: int = Query(50, ge=1, le=200),
+    channel: str = Query("", description="Filter by channel username(s), comma-separated"),
+):
     try:
         from email.utils import format_datetime
+
+        # Build channel filter
+        requested_channels = None
+        if channel:
+            requested_channels = [c.strip() for c in channel.split(",") if c.strip()]
+        else:
+            requested_channels = _RSS_CHANNELS
+
         async with async_session() as session:
-            result = await session.execute(text("""
-                SELECT telegram_message_id, text, published_at
-                FROM posts
-                ORDER BY published_at DESC
+            # Build query with optional channel filter
+            if requested_channels:
+                placeholders = ", ".join([f":ch{i}" for i in range(len(requested_channels))])
+                channel_filter = f"AND c.username IN ({placeholders})"
+                params = {f"ch{i}": ch for i, ch in enumerate(requested_channels)}
+            else:
+                channel_filter = ""
+                params = {}
+            params["limit"] = limit
+
+            result = await session.execute(text(f"""
+                SELECT
+                    p.telegram_message_id,
+                    p.text,
+                    p.published_at,
+                    c.username as channel_username,
+                    c.title as channel_title
+                FROM posts p
+                JOIN channels c ON p.channel_id = c.id
+                WHERE 1=1 {channel_filter}
+                ORDER BY p.published_at DESC
                 LIMIT :limit
-            """), {"limit": limit})
+            """), params)
             rows = result.fetchall()
 
             items = []
@@ -1219,10 +1252,13 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
                 msg_id = row[0]
                 body = row[1] or ""
                 pub = row[2]
+                ch_username = row[3] or "markettwits"
+                ch_title = row[4] or ch_username
+
                 # Escape XML
                 title = body[:100].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 desc = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                link = f"https://t.me/markettwits/{msg_id}"
+                link = f"https://t.me/{ch_username}/{msg_id}"
                 pub_date = format_datetime(pub) if pub else ""
                 items.append(f"""<item>
 <title>{title}</title>
@@ -1230,14 +1266,25 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
 <description>{desc}</description>
 <pubDate>{pub_date}</pubDate>
 <guid>{link}</guid>
+<source url="https://t.me/{ch_username}">{ch_title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</source>
 </item>""")
+
+            # Build channel info for RSS header
+            if len(requested_channels) == 1:
+                rss_title = requested_channels[0]
+                rss_link = f"https://t.me/{requested_channels[0]}"
+                rss_desc = f"Лента канала @{requested_channels[0]}"
+            else:
+                rss_title = "MarketTwits"
+                rss_link = "https://t.me/markettwits"
+                rss_desc = "Финансы, рынки и экономика"
 
             rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
 <channel>
-<title>MarketTwits</title>
-<link>https://t.me/markettwits</link>
-<description>Финансы, рынки и экономика</description>
+<title>{rss_title}</title>
+<link>{rss_link}</link>
+<description>{rss_desc}</description>
 <language>ru</language>
 <lastBuildDate>{format_datetime(datetime.now())}</lastBuildDate>
 {chr(10).join(items)}
