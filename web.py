@@ -1200,6 +1200,55 @@ async def chart_pairs(days: int = Query(7, ge=1, le=90)):
         return json_response({"pairs": [], "error": str(e)}, 500)
 
 
+# ─── RSS Feed ────────────────────────────────────────────────
+@app.get("/rss")
+async def rss_feed(limit: int = Query(50, ge=1, le=200)):
+    try:
+        from email.utils import format_datetime
+        async with async_session() as session:
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, published_at
+                FROM posts
+                ORDER BY published_at DESC
+                LIMIT :limit
+            """), {"limit": limit})
+            rows = result.mappings().all()
+
+            items = []
+            for r in rows:
+                msg_id = r["telegram_message_id"]
+                text = (r["text"] or "")[:500]
+                pub = r["published_at"]
+                # Escape XML
+                title = text[:100].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                desc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                link = f"https://t.me/markettwits/{msg_id}"
+                pub_date = format_datetime(pub) if pub else ""
+                items.append(f"""<item>
+<title>{title}</title>
+<link>{link}</link>
+<description>{desc}</description>
+<pubDate>{pub_date}</pubDate>
+<guid>{link}</guid>
+</item>""")
+
+            rss = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>MarketTwits Feed</title>
+<link>https://t.me/markettwits</link>
+<description>Latest posts from @markettwits Telegram channel</description>
+<language>ru</language>
+<lastBuildDate>{format_datetime(datetime.now())}</lastBuildDate>
+{chr(10).join(items)}
+</channel>
+</rss>"""
+            return HTMLResponse(content=rss, media_type="application/rss+xml")
+    except Exception as e:
+        logger.error(f"/rss error: {e}"); traceback.print_exc()
+        return json_response({"error": str(e)}, 500)
+
+
 # ─── Stock Price API (MOEX proxy) ────────────────────────────
 @app.get("/api/stock/price")
 async def stock_price(ticker: str = Query(...), days: int = Query(90, ge=1, le=365)):
