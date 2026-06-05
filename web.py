@@ -1217,7 +1217,7 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
             items = []
             for r in rows:
                 msg_id = r["telegram_message_id"]
-                text = (r["text"] or "")[:500]
+                text = r["text"] or ""
                 pub = r["published_at"]
                 # Escape XML
                 title = text[:100].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
