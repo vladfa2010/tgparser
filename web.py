@@ -354,7 +354,7 @@ async function showPostsForDay(idx){
       console.log('POST',pi,'UTC='+p.published.slice(11,16),'MSK='+t,'idx='+idx,'text='+p.text.slice(0,30));
       if(idx>=0&&idx<ohlc.length){
         overlayData[idx]=ohlc[idx][3]; // high price
-        newsMap[idx]=p.text?p.text.slice(0,60):'News';
+        newsMap[idx]=p.text?p.text:'News';
         console.log('  -> placed at idx',idx);
       }
     });
@@ -369,10 +369,6 @@ async function showPostsForDay(idx){
       intradayChart.setOption({
         backgroundColor:'transparent',
         tooltip:{trigger:'axis',axisPointer:{type:'cross'},formatter:function(p){
-          if(p[0]&&p[0].seriesType==='scatter'){
-            var d=p[0].data;
-            return'<b style=\"color:#fdcb6e\">News '+esc(times[d[0]])+'</b><br>'+esc(d[2]||'');
-          }
           var d=p[0]; var o=d.data[1],cl=d.data[2],lo=d.data[3],hi=d.data[4];
           var color=cl>=o?'#00d4aa':'#f87171';
           return d.name+'<br><span style="color:'+color+'">O:'+fmt(o)+' C:'+fmt(cl)+' L:'+fmt(lo)+' H:'+fmt(hi)+'</span>';
@@ -386,7 +382,7 @@ async function showPostsForDay(idx){
            itemStyle:{color:'#fdcb6e',borderColor:'#fff',borderWidth:2},
            label:{show:true,formatter:'!',color:'#0a0a1a',fontSize:10,fontWeight:'bold'},
            emphasis:{scale:1.5,itemStyle:{color:'#fdcb6e',borderColor:'#00d4aa',borderWidth:3}},
-           tooltip:{trigger:'item',show:true,formatter:function(p){var d=p.data;return'<b style=\"color:#fdcb6e\">News</b><br>'+esc(d[2]||'');}}}
+           tooltip:{trigger:'item',show:true,confine:true,textStyle:{width:400},formatter:function(p){var d=p.data,t=d[2]||'';var txt=t.length>300?t.substring(0,300)+'...':t;return'<div style=\"max-width:380px;word-break:break-word;white-space:normal;line-height:1.4\"><b style=\"color:#fdcb6e\">News at '+esc(times[d[0]])+'</b><br>'+esc(txt)+'</div>';}}}
         ]
       },true);
     }else{intradayChart.hideLoading();$('intraday-chart').innerHTML='<div class="empty">No intraday data for '+date+'</div>';}
