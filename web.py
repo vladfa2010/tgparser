@@ -1212,13 +1212,13 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
                 ORDER BY published_at DESC
                 LIMIT :limit
             """), {"limit": limit})
-            rows = result.mappings().all()
+            rows = result.fetchall()
 
             items = []
-            for r in rows:
-                msg_id = r[0]
-                body = r[1] or ""
-                pub = r[2]
+            for row in rows:
+                msg_id = row[0]
+                body = row[1] or ""
+                pub = row[2]
                 # Escape XML
                 title = body[:100].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 desc = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
