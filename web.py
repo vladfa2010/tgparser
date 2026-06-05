@@ -1216,12 +1216,12 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
 
             items = []
             for r in rows:
-                msg_id = r["telegram_message_id"]
-                text = r["text"] or ""
-                pub = r["published_at"]
+                msg_id = r[0]
+                body = r[1] or ""
+                pub = r[2]
                 # Escape XML
-                title = text[:100].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                desc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                title = body[:100].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                desc = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 link = f"https://t.me/markettwits/{msg_id}"
                 pub_date = format_datetime(pub) if pub else ""
                 items.append(f"""<item>
