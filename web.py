@@ -1243,7 +1243,7 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
 {chr(10).join(items)}
 </channel>
 </rss>"""
-            return HTMLResponse(content=rss, media_type="application/rss+xml")
+            return HTMLResponse(content=rss, media_type="application/rss+xml; charset=utf-8")
     except Exception as e:
         logger.error(f"/rss error: {e}"); traceback.print_exc()
         return json_response({"error": str(e)}, 500)
