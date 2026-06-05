@@ -1235,9 +1235,9 @@ async def rss_feed(limit: int = Query(50, ge=1, le=200)):
             rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
 <channel>
-<title>MarketTwits Feed</title>
+<title>@markettwits | Финансы и рынки</title>
 <link>https://t.me/markettwits</link>
-<description>Latest posts from @markettwits Telegram channel</description>
+<description>Новости финансов, рынков и экономики из Telegram-канала @markettwits</description>
 <language>ru</language>
 <lastBuildDate>{format_datetime(datetime.now())}</lastBuildDate>
 {chr(10).join(items)}
