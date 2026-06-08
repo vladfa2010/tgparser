@@ -401,6 +401,16 @@ async function loadCharts(){
   $('s-change').textContent='...';
   $('s-total').textContent='...';
 
+  // Reset charts fresh — previous error may have destroyed DOM
+  if(stockChart){try{stockChart.dispose();}catch(e){}stockChart=null;}
+  if(tagChart){try{tagChart.dispose();}catch(e){}tagChart=null;}
+  if(intradayChart){try{intradayChart.dispose();}catch(e){}intradayChart=null;}
+  $('stock-chart').innerHTML='';
+  $('tag-chart').innerHTML='';
+  $('intraday-chart').innerHTML='';
+  $('posts-box').style.display='none';
+  $('intraday-box').style.display='none';
+
   try{
     // Fetch stock price + tag activity in parallel
     var s=await api('/stock/price?ticker='+encodeURIComponent(ticker)+'&days=90');
@@ -469,14 +479,23 @@ async function loadCharts(){
     hideLoader();
   }catch(e){
     console.error(e);
-    $('stock-chart').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
-    $('tag-chart').innerHTML='<div class="err"><h3>Error</h3><p>'+esc(e.message)+'</p></div>';
+    // Render error inside charts without destroying DOM
+    getStockChart().setOption({
+      backgroundColor:'transparent',
+      title:{text:'Error: '+esc(e.message),left:'center',top:'center',
+             textStyle:{color:'#f87171',fontSize:14}}
+    },true);
+    getTagChart().setOption({
+      backgroundColor:'transparent',
+      title:{text:'Error: '+esc(e.message),left:'center',top:'center',
+             textStyle:{color:'#f87171',fontSize:14}}
+    },true);
     hideLoader();
   }
 }
 
 window.loadCharts=loadCharts;
-window.addEventListener('resize',function(){if(stockChart)stockChart.resize();if(tagChart)tagChart.resize();if(intradayChart)intradayChart.resize();});
+window.addEventListener('resize',function(){try{if(stockChart)stockChart.resize();}catch(e){}try{if(tagChart)tagChart.resize();}catch(e){}try{if(intradayChart)intradayChart.resize();}catch(e){}});
 loadCharts();
 })();
 </script>
