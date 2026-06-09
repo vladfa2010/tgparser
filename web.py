@@ -127,6 +127,12 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 .post-tags{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 .tag{background:#1e293b;color:#00d4aa;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500}
 
+/* Period selector */
+.period{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b;width:fit-content}
+.period button{background:none;border:none;color:#64748b;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s}
+.period button:hover{color:#e2e8f0;background:#1e293b}
+.period button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
+
 /* Pagination */
 .page{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px}
 .page button{background:#0f172a;border:1px solid #1e293b;color:#00d4aa;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px}
@@ -167,6 +173,12 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 </section>
 
 <section id="tab-tags" style="display:none">
+<div class="period" id="tag-period" style="margin-bottom:16px">
+<button class="on" data-h="24">24h</button>
+<button data-h="72">3d</button>
+<button data-h="168">7d</button>
+<button data-h="720">30d</button>
+</div>
 <div class="stats" id="t-stats"><div class="sk" style="height:60px"></div><div class="sk" style="height:60px"></div><div class="sk" style="height:60px"></div></div>
 <div id="t-list"></div>
 </section>
@@ -194,8 +206,13 @@ document.querySelectorAll('nav button').forEach(function(btn){btn.addEventListen
 async function loadPosts(){if(loading.posts)return;loading.posts=true;$('loader-sub').textContent='Loading posts...';var q=$('q').value,sort=$('sort').value;try{var data=await api('/posts?page='+page+'&search='+encodeURIComponent(q)+'&sort='+sort),stats=await api('/stats');$('subtitle').textContent=fmt(stats.total_posts)+' posts | Last: '+(stats.last_parsed||'-');$('p-stats').innerHTML='<div class="stat"><div class="stat-v">'+fmt(stats.total_posts)+'</div><div class="stat-l">Total</div></div><div class="stat"><div class="stat-v">'+fmt(stats.today_posts)+'</div><div class="stat-l">Today</div></div><div class="stat"><div class="stat-v">'+fmt(stats.week_posts)+'</div><div class="stat-l">Week</div></div><div class="stat"><div class="stat-v">'+fmt(stats.avg_views)+'</div><div class="stat-l">Avg</div></div><div class="stat"><div class="stat-v">'+fmt(stats.total_parses)+'</div><div class="stat-l">Parses</div></div>';if(!data.posts||!data.posts.length){$('p-list').innerHTML='<div class="empty">No posts</div>'}else{$('p-list').innerHTML=data.posts.map(function(p){var tags=(p.hashtags||[]).map(function(t){return'<span class="tag">'+esc(t)+'</span>'}).join('');return'<div class="post"><div class="post-head"><span>ID:'+p.id+'</span><span>views:'+fmt(p.views)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div><div class="post-body">'+esc(p.text||'(no text)')+'</div>'+(tags?'<div class="post-tags">'+tags+'</div>':'')+'</div>'}).join('')}$('p-page').innerHTML='<button '+(page>1?'onclick="goPage('+(page-1)+')"':'disabled')+'>&larr; Prev</button><span>Page '+page+'</span><button '+((data.posts||[]).length===20?'onclick="goPage('+(page+1)+')"':'disabled')+'>Next &rarr;</button>';hideLoader()}catch(e){console.error(e);showError('p-list',e.message)}finally{loading.posts=false}}
 window.goPage=function(p){page=p;loadPosts()};
 
-// Tags
-async function loadTags(){if(loading.tags)return;loading.tags=true;$('loader-sub').textContent='Loading tags...';try{var data=await api('/tags/24h');var tags=data.tags||[];$('t-stats').innerHTML='<div class="stat"><div class="stat-v">'+tags.length+'</div><div class="stat-l">Tags</div></div><div class="stat"><div class="stat-v">'+(tags[0]?esc(tags[0].tag):'-')+'</div><div class="stat-l">Top</div></div><div class="stat"><div class="stat-v">'+fmt(tags.reduce(function(a,t){return a+t.count},0))+'</div><div class="stat-l">Tagged</div></div>';if(!tags.length){$('t-list').innerHTML='<div class="empty">No tags in 24h</div>';hideLoader();loading.tags=false;return}var maxC=Math.max.apply(null,tags.map(function(t){return t.count}));var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];$('t-list').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:16px">Last 24 hours — tag ranking by frequency</div>'+tags.map(function(t,i){var pct=Math.round((t.count/maxC)*100);return'<div style="display:flex;align-items:center;gap:15px;margin-bottom:10px;padding:14px 16px;background:#0f172a;border:1px solid #1e293b;border-radius:10px"><div style="min-width:160px;font-weight:600;color:#00d4aa;font-size:14px">'+esc(t.tag)+'</div><div style="flex:1;height:28px;background:#0a0a1a;border-radius:6px;overflow:hidden"><div style="height:100%;border-radius:6px;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:600;color:#fff;transition:width .8s;width:'+pct+'%;background:'+colors[i%colors.length]+'">'+t.count+' posts</div></div><div style="min-width:90px;text-align:right;color:#64748b;font-size:12px">'+fmt(t.total_views)+' views<br>~'+fmt(t.avg_views)+'</div></div>'}).join('');hideLoader()}catch(e){console.error(e);showError('t-list',e.message)}finally{loading.tags=false}}
+// Tags — period selector state
+var tagHours=24;
+
+async function loadTags(hours){hours=hours||tagHours;if(loading.tags)return;loading.tags=true;$('loader-sub').textContent='Loading tags...';tagHours=hours;try{var data=await api('/tags?hours='+hours);var tags=data.tags||[];var periodLabel=hours>=720?(hours/720)+' month':hours>=24?(hours/24)+' day':'hour';periodLabel=hours===24?'24 hours':hours===72?'3 days':hours===168?'7 days':hours===720?'30 days':periodLabel;$('t-stats').innerHTML='<div class="stat"><div class="stat-v">'+tags.length+'</div><div class="stat-l">Tags</div></div><div class="stat"><div class="stat-v">'+(tags[0]?esc(tags[0].tag):'-')+'</div><div class="stat-l">Top</div></div><div class="stat"><div class="stat-v">'+fmt(tags.reduce(function(a,t){return a+t.count},0))+'</div><div class="stat-l">Tagged</div></div>';if(!tags.length){$('t-list').innerHTML='<div class="empty">No tags for selected period</div>';hideLoader();loading.tags=false;return}var maxC=Math.max.apply(null,tags.map(function(t){return t.count}));var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4'];$('t-list').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:16px">Last '+periodLabel+' — tag ranking by frequency</div>'+tags.map(function(t,i){var pct=Math.round((t.count/maxC)*100);return'<div style="display:flex;align-items:center;gap:15px;margin-bottom:10px;padding:14px 16px;background:#0f172a;border:1px solid #1e293b;border-radius:10px"><div style="min-width:160px;font-weight:600;color:#00d4aa;font-size:14px">'+esc(t.tag)+'</div><div style="flex:1;height:28px;background:#0a0a1a;border-radius:6px;overflow:hidden"><div style="height:100%;border-radius:6px;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:600;color:#fff;transition:width .8s;width:'+pct+'%;background:'+colors[i%colors.length]+'">'+t.count+' posts</div></div><div style="min-width:90px;text-align:right;color:#64748b;font-size:12px">'+fmt(t.total_views)+' views<br>~'+fmt(t.avg_views)+'</div></div>'}).join('');hideLoader()}catch(e){console.error(e);showError('t-list',e.message)}finally{loading.tags=false}}
+
+// Tag period selector handlers
+document.querySelectorAll('#tag-period button').forEach(function(btn){btn.addEventListener('click',function(){document.querySelectorAll('#tag-period button').forEach(function(b){b.classList.remove('on')});btn.classList.add('on');loadTags(parseInt(btn.dataset.h))})});
 
 loadPosts();
 })();
@@ -1036,12 +1053,12 @@ async def api_posts(page: int = 1, limit: int = 20, search: str = "", sort: str 
         return json_response({"error": str(e), "posts": []}, 500)
 
 
-# ─── API: Tags 24h ───────────────────────────────────────────
-@app.get("/api/tags/24h")
-async def api_tags_24h():
+# ─── API: Tags (parametric) ──────────────────────────────────
+@app.get("/api/tags")
+async def api_tags(hours: int = Query(24, ge=1, le=720)):
     try:
         async with async_session() as session:
-            since = await get_since(session, timedelta(hours=24))
+            since = await get_since(session, timedelta(hours=hours))
             result = await session.execute(text("""
                 WITH tagged AS (
                     SELECT * FROM posts WHERE published_at > :since
@@ -1072,8 +1089,14 @@ async def api_tags_24h():
                 rows = result.mappings().all()
             return {"tags": [{"tag": r["hashtag"], "count": r["cnt"], "total_views": r["total_views"] or 0, "avg_views": r["avg_views"] or 0} for r in rows]}
     except Exception as e:
-        logger.error(f"/tags/24h error: {e}"); traceback.print_exc()
+        logger.error(f"/tags error: {e}"); traceback.print_exc()
         return json_response({"tags": [], "error": str(e)}, 500)
+
+
+# Backward compatibility: /api/tags/24h → /api/tags?hours=24
+@app.get("/api/tags/24h")
+async def api_tags_24h_compat():
+    return await api_tags(hours=24)
 
 
 # ─── Charts API ──────────────────────────────────────────────
