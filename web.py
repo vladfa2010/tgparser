@@ -829,7 +829,7 @@ function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))e
 setTimeout(hideLoader,5000);
 
 // Global error handler
-window.onerror=function(msg,url,line){console.error('JS ERROR:',msg,'line',line);hideLoader();var bub=$('c-bubble');if(bub)bub.innerHTML='<div class="err-box"><h3>JavaScript Error</h3><p>'+msg+(line?' (line '+line+')':'')+'</p><button onclick="loadAll()">Retry</button></div>';return true};
+window.onerror=function(msg,url,line){console.error('JS ERROR:',msg,'line',line);hideLoader();try{getChart('c-bubble').setOption({backgroundColor:'transparent',title:{text:'JS Error: '+msg,left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}},true);}catch(e){}return true};
 
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -861,8 +861,16 @@ document.querySelectorAll('.period button').forEach(function(btn){
   });
 });
 
+function resetCharts(){
+  Object.keys(charts).forEach(function(id){try{charts[id].dispose();}catch(e){}});
+  charts={};
+}
+
 async function loadAll(){
   console.log('loadAll() start, days='+days);
+  // Reset charts fresh — previous error may have destroyed DOM
+  resetCharts();
+  ['c-bubble','c-heat','c-hist','c-time','c-pair'].forEach(function(id){var el=$(id);if(el)el.innerHTML='';});
   try{
     $('loader-sub').textContent='Fetching data...';
     if(typeof echarts==='undefined'){
@@ -885,17 +893,19 @@ async function loadAll(){
     // Stats
     $('top-stats').innerHTML=[['Posts',fmt(t.total_posts)],['Tags',t.tags.length],['Top',t.tags[0]?t.tags[0].tag:'-'],['Avg',fmt(t.avg_reach)],['Peak',a.peak_hour+'h']].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
     // Render each chart individually so one failure doesn't kill all
-    try{renderBubble(t.tags);console.log('bubble OK')}catch(e){console.error('bubble:',e);var el=$('c-bubble');if(el)el.innerHTML='<div class="err-box"><h3>Bubble</h3><p>'+e.message+'</p></div>';}
-    try{renderHeat(a.hours,a.peak_hour);console.log('heat OK')}catch(e){console.error('heat:',e);var el=$('c-heat');if(el)el.innerHTML='<div class="err-box"><h3>Heatmap</h3><p>'+e.message+'</p></div>';}
-    try{renderHist(v.bins);console.log('hist OK')}catch(e){console.error('hist:',e);var el=$('c-hist');if(el)el.innerHTML='<div class="err-box"><h3>Histogram</h3><p>'+e.message+'</p></div>';}
-    try{renderTime(tl.tags);console.log('time OK')}catch(e){console.error('time:',e);var el=$('c-time');if(el)el.innerHTML='<div class="err-box"><h3>Timeline</h3><p>'+e.message+'</p></div>';}
-    try{renderPairs(p.pairs);console.log('pairs OK')}catch(e){console.error('pairs:',e);var el=$('c-pair');if(el)el.innerHTML='<div class="err-box"><h3>Pairs</h3><p>'+e.message+'</p></div>';}
+    try{renderBubble(t.tags);console.log('bubble OK')}catch(e){console.error('bubble:',e);try{getChart('c-bubble').setOption({backgroundColor:'transparent',title:{text:'Error: '+e.message,left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}},true);}catch(e2){}}
+    try{renderHeat(a.hours,a.peak_hour);console.log('heat OK')}catch(e){console.error('heat:',e);try{getChart('c-heat').setOption({backgroundColor:'transparent',title:{text:'Error: '+e.message,left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}},true);}catch(e2){}}
+    try{renderHist(v.bins);console.log('hist OK')}catch(e){console.error('hist:',e);try{getChart('c-hist').setOption({backgroundColor:'transparent',title:{text:'Error: '+e.message,left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}},true);}catch(e2){}}
+    try{renderTime(tl.tags);console.log('time OK')}catch(e){console.error('time:',e);try{getChart('c-time').setOption({backgroundColor:'transparent',title:{text:'Error: '+e.message,left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}},true);}catch(e2){}}
+    try{renderPairs(p.pairs);console.log('pairs OK')}catch(e){console.error('pairs:',e);try{getChart('c-pair').setOption({backgroundColor:'transparent',title:{text:'Error: '+e.message,left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}},true);}catch(e2){}}
     hideLoader();
     console.log('all done');
   }catch(e){
     console.error('loadAll ERROR:',e);
-    var bub=$('c-bubble');if(bub)bub.innerHTML='<div class="err-box"><h3>Error</h3><p>'+esc(e.message)+'</p><button onclick="loadAll()">Retry</button></div>';
-    ['c-heat','c-hist','c-time','c-pair'].forEach(function(id){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Failed</div>';});
+    // Re-init containers and show error via setOption (don't destroy DOM with innerHTML)
+    resetCharts();
+    ['c-bubble','c-heat','c-hist','c-time','c-pair'].forEach(function(id){var el=$(id);if(el)el.innerHTML='';});
+    try{echarts.init($('c-bubble'),null,{renderer:'canvas'}).setOption({backgroundColor:'transparent',title:{text:'Error: '+esc(e.message),left:'center',top:'center',textStyle:{color:'#f87171',fontSize:14}}});}catch(e2){}
     hideLoader();
   }
 }
@@ -990,7 +1000,7 @@ function renderPairs(pairs){
   });
 }
 
-window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){if(c)c.resize()})});
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){try{if(c)c.resize();}catch(e){}})});
 window.loadAll=loadAll;
 loadAll();
 })();
