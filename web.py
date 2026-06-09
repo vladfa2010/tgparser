@@ -1427,10 +1427,16 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 .empty{text-align:center;color:#64748b;padding:60px;font-size:14px}
 .btn{background:#00d4aa;color:#0a0a1a;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
 .btn:hover{opacity:.85}
+
+/* Tabs nav */
+nav{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b;width:fit-content;margin-bottom:20px}
+nav button{background:none;border:none;color:#64748b;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:.15s}
+nav button:hover{color:#e2e8f0;background:#1e293b}
+nav button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
 </style>
 </head>
 <body>
-<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading viral & cross-market...</div></div>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
 
 <div class="wrap">
 <header>
@@ -1444,56 +1450,39 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 <a href="/" class="back">&larr; Back</a>
 </header>
 
-<div class="stats-bar" id="top-stats"></div>
+<nav style="margin-bottom:20px">
+<button class="on" data-tab="posts">🔥 Viral Posts</button>
+<button data-tab="sectors">🏭 Sectors</button>
+<button data-tab="cloud">☁️ Word Cloud</button>
+<button data-tab="cross">🌍 Cross-Market</button>
+</nav>
 
-<div class="grid grid-2">
-<div class="chart-box">
-<div class="chart-title">🔥 Top 10 Viral Posts</div>
-<div class="chart-sub">Most viewed posts</div>
-<div id="v-posts"></div>
-</div>
+<section id="tab-posts"><div id="v-posts"></div></section>
+<section id="tab-sectors" style="display:none"><div id="v-sector"></div></section>
+<section id="tab-cloud" style="display:none"><div id="v-cloud" class="cloud"></div></section>
+<section id="tab-cross" style="display:none"><div id="v-cross"></div><div id="v-tickers" style="margin-top:12px"></div></section>
 
-<div class="chart-box">
-<div class="chart-title">🏭 Sector Rotation</div>
-<div class="chart-sub">Mentions by industry sector</div>
-<div class="chart" id="v-sector"></div>
-</div>
-
-<div class="chart-box full">
-<div class="chart-title">☁️ Word Cloud</div>
-<div class="chart-sub">Most frequent words in posts</div>
-<div id="v-cloud" class="cloud"></div>
-</div>
-
-<div class="chart-box full">
-<div class="chart-title">🌍 Cross-Market Intelligence</div>
-<div class="chart-sub">Posts mentioning oil, USD, EUR, rates + co-mentioned tickers</div>
-<div id="v-cross"><div style="text-align:center;padding:30px"><button id="v-cross-btn" class="btn" onclick="loadCrossMarket()">Load Cross-Market Data</button></div></div>
-<div id="v-tickers" style="margin-top:12px"></div>
-</div>
-</div>
 </div>
 
 <script>
 (function(){
 'use strict';
-var days=7;
+var days=7,activeTab='posts',loaded={posts:false,sectors:false,cloud:false,cross:false};
 var $=function(id){return document.getElementById(id)};
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
-setTimeout(hideLoader,6000);
+setTimeout(hideLoader,5000);
 
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 function setLoading(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#64748b;padding:40px;font-size:14px">'+(msg||'Loading...')+'</div>';}
-function setError(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#f87171;padding:40px;font-size:14px">'+esc(msg)+'</div>';}
+function setError(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#f87171;padding:40px;font-size:14px">Error: '+esc(msg)+'</div>';}
 function setEmpty(id,msg){var el=$(id);if(el)el.innerHTML='<div class="empty">'+(msg||'No data')+'</div>';}
 
-// Fetch with 15s timeout
 async function api(path){
   var ctrl=new AbortController();
-  var t=setTimeout(function(){ctrl.abort();},15000);
+  var t=setTimeout(function(){ctrl.abort();},12000);
   try{
     var r=await fetch('/api'+path,{cache:'no-store',signal:ctrl.signal});
     clearTimeout(t);
@@ -1503,7 +1492,7 @@ async function api(path){
     return d;
   }catch(e){
     clearTimeout(t);
-    if(e.name==='AbortError') throw new Error('Timeout (15s)');
+    if(e.name==='AbortError') throw new Error('Timeout (12s)');
     throw e;
   }
 }
@@ -1514,97 +1503,109 @@ document.querySelectorAll('.period button').forEach(function(btn){
     document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
     btn.classList.add('on');
     days=parseInt(btn.dataset.d);
-    loadAll();
+    loaded={posts:false,sectors:false,cloud:false,cross:false};
+    loadTab(activeTab,true);
   });
 });
 
-async function loadSection(name,url,renderFn){
+// Tab switcher
+document.querySelectorAll('nav button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var tab=btn.dataset.tab;
+    document.querySelectorAll('nav button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');
+    ['posts','sectors','cloud','cross'].forEach(function(t){$('tab-'+t).style.display=(t===tab)?'':'none';});
+    activeTab=tab;
+    loadTab(tab,false);
+  });
+});
+
+async function loadTab(tab,force){
+  if(loaded[tab]&&!force) return;
+  loaded[tab]=true;
   try{
-    var data=await api(url);
-    renderFn(data);
-  }catch(e){
-    console.error(name+':',e);
-    if(name==='viral') setError('v-posts',e.message);
-    if(name==='sector') setError('v-sector',e.message);
-    if(name==='wordcloud') setError('v-cloud',e.message);
-  }
+    if(tab==='posts') await loadPosts();
+    else if(tab==='sectors') await loadSectors();
+    else if(tab==='cloud') await loadCloud();
+    else if(tab==='cross') await loadCross();
+  }catch(e){console.error('Tab '+tab+':',e);}
+  hideLoader();
 }
 
-function renderViral(viralData){
-  var posts=(viralData&&viralData.posts)||[];
-  if(!posts.length){setEmpty('v-posts','No viral posts for this period');return;}
-  $('v-posts').innerHTML=posts.map(function(p,i){
-    var ch=p.channel||'markettwits';
-    var link='https://t.me/'+ch+'/'+p.id;
-    return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
-      '<div class="vpost-head"><span>#'+(i+1)+' | @'+esc(ch)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
-      '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,200))+'</div>'+
-      '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div>'+
-      '</div>';
-  }).join('');
+// ─── Viral Posts ───
+async function loadPosts(){
+  setLoading('v-posts','Loading viral posts...');
+  try{
+    var data=await api('/viral/posts?days='+days+'&limit=10');
+    var posts=(data&&data.posts)||[];
+    if(!posts.length){setEmpty('v-posts','No viral posts for this period');return;}
+    $('v-posts').innerHTML=posts.map(function(p,i){
+      var link='https://t.me/markettwits/'+p.id;
+      return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
+        '<div class="vpost-head"><span>#'+(i+1)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
+        '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,200))+'</div>'+
+        '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div></div>';
+    }).join('');
+  }catch(e){setError('v-posts',e.message);}
 }
 
-function renderSector(sectorData){
-  var sectors=(sectorData&&sectorData.sectors)||[];
-  var total=(sectorData&&sectorData.total)||1;
-  if(!sectors.length){setEmpty('v-sector','No sector data');return;}
-  var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
-  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-  $('v-sector').innerHTML=sectors.map(function(s,i){
-    var pct=Math.round((s.count/maxC)*100);
-    return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
-  }).join('');
+// ─── Sectors ───
+async function loadSectors(){
+  setLoading('v-sector','Loading sectors...');
+  try{
+    var data=await api('/sector/rotation?days='+days);
+    var sectors=(data&&data.sectors)||[];
+    var total=(data&&data.total)||1;
+    if(!sectors.length){setEmpty('v-sector','No sector data');return;}
+    var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
+    var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+    $('v-sector').innerHTML=sectors.map(function(s,i){
+      var pct=Math.round((s.count/maxC)*100);
+      return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
+    }).join('');
+  }catch(e){setError('v-sector',e.message);}
 }
 
-function renderCloud(cloudData){
-  var words=(cloudData&&cloudData.words)||[];
-  if(!words.length){setEmpty('v-cloud','No word data');return;}
-  var maxC=words[0].count||1;
-  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-  $('v-cloud').innerHTML=words.map(function(w,i){
-    var size=10+Math.round((w.count/maxC)*28);
-    return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
-  }).join('');
+// ─── Word Cloud ───
+async function loadCloud(){
+  setLoading('v-cloud','Loading word cloud...');
+  try{
+    var data=await api('/wordcloud?days='+days+'&limit=60');
+    var words=(data&&data.words)||[];
+    if(!words.length){setEmpty('v-cloud','No word data');return;}
+    var maxC=words[0].count||1;
+    var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+    $('v-cloud').innerHTML=words.map(function(w,i){
+      var size=10+Math.round((w.count/maxC)*28);
+      return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
+    }).join('');
+  }catch(e){setError('v-cloud',e.message);}
 }
 
-window.loadCrossMarket=function(){
-  $('v-cross').innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Loading cross-market data...</div>';
-  loadSection('crossmarket','/crossmarket/links?days='+days,function(crossData){
-    var posts=(crossData&&crossData.posts)||[];
-    var tickers=(crossData&&crossData.tickers)||[];
-    if(!posts.length){setEmpty('v-cross','No cross-market posts');$('v-tickers').innerHTML='';return;}
+// ─── Cross-Market ───
+async function loadCross(){
+  setLoading('v-cross','Loading cross-market...');
+  $('v-tickers').innerHTML='';
+  try{
+    var data=await api('/crossmarket/links?days='+days);
+    var posts=(data&&data.posts)||[];
+    var tickers=(data&&data.tickers)||[];
+    if(!posts.length){setEmpty('v-cross','No cross-market posts');return;}
     $('v-cross').innerHTML=posts.slice(0,10).map(function(p){
-      var ch=p.channel||'markettwits';
-      var link='https://t.me/'+ch+'/'+p.id;
+      var link='https://t.me/markettwits/'+p.id;
       return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
-        '<div class="xpost-head"><span>@'+esc(ch)+'</span><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
+        '<div class="xpost-head"><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
         '<div class="xpost-body">'+esc((p.text||'(no text)').slice(0,250))+'</div></div>';
     }).join('');
     if(tickers.length){
       $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
         tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
-    }else{$('v-tickers').innerHTML='';}
-  });
-};
-
-async function loadAll(){
-  setLoading('v-posts','Loading viral posts...');
-  setLoading('v-sector','Loading sectors...');
-  setLoading('v-cloud','Loading word cloud...');
-  $('v-cross').innerHTML='<div style="text-align:center;padding:30px"><button id="v-cross-btn" class="btn" onclick="loadCrossMarket()">Load Cross-Market Data</button></div>';
-  $('v-tickers').innerHTML='';
-
-  // All 3 load in parallel now — backend queries are fast (<1s each)
-  await Promise.all([
-    loadSection('viral','/viral/posts?days='+days+'&limit=10',renderViral),
-    loadSection('sector','/sector/rotation?days='+days,renderSector),
-    loadSection('wordcloud','/wordcloud?days='+days+'&limit=60',renderCloud)
-  ]);
-
-  hideLoader();
+    }
+  }catch(e){setError('v-cross',e.message);}
 }
 
-loadAll();
+// Load first tab only
+loadTab('posts',false);
 })();
 </script>
 </body>
