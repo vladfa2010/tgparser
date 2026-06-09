@@ -1517,7 +1517,7 @@ async function loadAll(){
     ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
 
     renderViral(vir.posts);
-    renderSector(sec.sectors);
+    renderSector(sec.sectors, sec.total);
     renderCloud(wc.words);
     renderCrossMarket(xm);
     hideLoader();
@@ -1540,13 +1540,13 @@ function renderViral(posts){
   }).join('');
 }
 
-function renderSector(sectors){
+function renderSector(sectors, total){
   if(!sectors||!sectors.length){$('v-sector').innerHTML='<div class="empty">No sector data</div>';return;}
   var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
   var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
   $('v-sector').innerHTML=sectors.map(function(s,i){
     var pct=Math.round((s.count/maxC)*100);
-    return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/sec.total)*100)+'%</div></div>';
+    return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
   }).join('');
 }
 
