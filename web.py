@@ -21,6 +21,91 @@ from sqlalchemy import JSON as JSONCol, BigInteger, Boolean, Column, DateTime, I
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# ─── Sentiment Lexicon (Russian) ─────────────────────────────
+SENTIMENT_POSITIVE = frozenset({
+    "рост", "прибыль", "прибыльный", "прибыльная", "прирост", "повышение", "подъем",
+    "подъём", "рали", "ралли", "бык", "бычий", "лонг", "покупка", "покупаем",
+    "покупать", "вход", "вошел", "вошёл", "цель", "тейк", "тейк-профит", " профит",
+    "доход", "доходность", "доходный", "окупаемость", "плюс", "позитив", "позитивный",
+    "оптимизм", "оптимистичный", "сильный", "укрепление", "восстановление", "отскок",
+    "прорыв", "breakout", "рванул", "взлетел", "взлет", "растет", "растёт", "расти",
+    "зеленый", "зелёный", "зелень", "buy", "long", "bull", "bullish", "profit",
+    "growth", "gain", "up", "rise", "rising", "rocket", "moon", " ATH", " ath",
+    " rekord", "рекорд", "максимум", "high", "higher", "strong", " outperform",
+    "перспектива", "потенциал", "увеличение", "расширение", "дивиденд", "купон",
+    "ивестиция", "вклад", "пассивный доход", "капитализация", "рост капитализации",
+})
+
+SENTIMENT_NEGATIVE = frozenset({
+    "падение", "убыток", "убыточный", "убыточная", "понижение", "снижение", "спад",
+    "медведь", "медвежий", "шорт", "продажа", "продаем", "продаж", "продать",
+    "выход", "вышел", "стоп", "стоп-лосс", "лосс", "потеря", "потери", "минус",
+    "негатив", "негативный", "пессимизм", "пессимистичный", "слабый", "ослабление",
+    "обвал", "кризис", "крах", "крах", "пузырь", "коррекция", "просадка", "просел",
+    "просел", "обвалился", "рухнул", "падает", "падать", "красный", "красные",
+    "sell", "short", "bear", "bearish", "loss", "losses", "down", "drop", "fall",
+    "falling", "crash", "dump", "crisis", "correction", "weak", "underperform",
+    "банкротство", "дефолт", "санкции", "штраф", "иск", "претензия", "спор",
+    "конфликт", "задержка", "отсрочка", "срыв", "невыполнение", "риск", "опасность",
+    "угроза", "нестабильность", "волатильность", "биржевой стресс", "ликвидация",
+    "маржин-колл", "форс-мажор", "паника", "истерия", "флуд", "fud",
+})
+
+# ─── Sector Mapping ──────────────────────────────────────────
+TICKER_TO_SECTOR = {
+    # Oil & Gas
+    "LKOH": "Oil & Gas", "SIBN": "Oil & Gas", "NVTK": "Oil & Gas",
+    "TATN": "Oil & Gas", "BANE": "Oil & Gas", "ROSN": "Oil & Gas",
+    "GAZP": "Oil & Gas", "SNGS": "Oil & Gas", "TRNF": "Oil & Gas",
+    # Banks
+    "SBER": "Banks", "VTBR": "Banks", "TCSG": "Banks", "CBOM": "Banks",
+    "ALFA": "Banks", "BSPB": "Banks", "QIWI": "Banks", "SFIN": "Banks",
+    # Metals & Mining
+    "GMKN": "Metals", "MAGN": "Metals", "NLMK": "Metals", "CHMF": "Metals",
+    "ALRS": "Metals", "RUAL": "Metals", "MTLR": "Metals", "PLZL": "Metals",
+    "POLY": "Metals", "IRKT": "Metals",
+    # Telecom
+    "MTSS": "Telecom", "RTKM": "Telecom", "VEON": "Telecom", "AFKS": "Telecom",
+    # Tech
+    "YDEX": "Tech", "OZON": "Tech", "OKEY": "Tech", "BELU": "Tech",
+    "MDMG": "Tech", "SGZH": "Tech", "CIAN": "Tech", "POSI": "Tech",
+    # Utilities
+    "HYDR": "Utilities", "FEES": "Utilities", "TGKA": "Utilities",
+    "UPRO": "Utilities", "MSNG": "Utilities", "ENPG": "Utilities",
+    # Consumer / Retail
+    "MVID": "Consumer", "FIVE": "Consumer", "LENT": "Consumer",
+    "FIXP": "Consumer", "X5": "Consumer", "MGNT": "Consumer",
+    "APTK": "Consumer", "GCHE": "Consumer",
+    # Transport
+    "AFLT": "Transport", "FLOT": "Transport", "NKHP": "Transport",
+    "GLTR": "Transport",
+    # Chemicals
+    "PHOR": "Chemicals", "AKRN": "Chemicals", "KZOS": "Chemicals",
+    # Defence
+    "MOEX": "Finance", "ISIN": "Finance",
+}
+
+# ─── Stop words for word cloud ───────────────────────────────
+STOP_WORDS = frozenset({
+    "и", "в", "на", "с", "по", "к", "для", "не", "что", "это", "от", "за",
+    "до", "из", "за", "при", "то", "а", "но", "или", "да", "же", "бы", "так",
+    "как", "его", "ее", "её", "их", "мы", "вы", "он", "она", "они", "мне",
+    "тебе", "вас", "нас", "ему", "ей", "им", "также", "еще", "ещё", "уже",
+    "был", "была", "были", "было", "есть", "нет", "может", "можно", "нужно",
+    "только", "даже", "уже", "все", "всё", "этот", "эта", "эти", "тот", "та",
+    "те", "тут", "там", "здесь", "где", "когда", "почему", "зачем", "кто",
+    "чем", "чтобы", "если", "потому", "поэтому", "однако", "хотя", "ведь",
+    "просто", "очень", "более", "менее", "больше", "меньше", "почти", "около",
+    "the", "and", "for", "are", "but", "not", "you", "all", "can", "had",
+    "her", "was", "one", "our", "out", "day", "get", "has", "him", "his",
+    "how", "its", "may", "new", "now", "old", "see", "two", "who", "boy",
+    "did", "she", "use", "her", "way", "many", "oil", "gas", "rub", "usd",
+    "eur", "cny", "ton", "bbl", "mln", "bln", "тыс", "млн", "млрд", "р",
+    "₽", "$", "app", "www", "https", "http", "com", "ru", "ru", "index",
+    "imoex", "moex", "ртс", "rts", "shares", "stock", "market", "сектор",
+    "акция", "акции", "тикер", "канал", "пост", "новость", "новости",
+})
+
 # ─── Database ────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
@@ -159,6 +244,8 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 <a href="/charts">&#128202; Charts</a>
 <a href="/analytics">&#128270; Analytics</a>
 <a href="/tag-daily">&#128200; Stock</a>
+<a href="/sentiment">&#129504; Sentiment</a>
+<a href="/viral">&#128293; Viral</a>
 </nav>
 
 <section id="tab-posts">
@@ -1014,6 +1101,487 @@ loadAll();
 </html>'''
 
 
+# ─── SPA: Sentiment & Intelligence ───────────────────────────
+SENTIMENT_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentiment & Intelligence — TG Parser</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e2e8f0;line-height:1.5}
+.wrap{max-width:1400px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px}
+h1{color:#00d4aa;font-size:28px;font-weight:700}
+.back{color:#64748b;text-decoration:none;font-size:14px}
+.back:hover{color:#00d4aa}
+
+/* Loader */
+#loader{position:fixed;inset:0;background:#0a0a1a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .4s}
+#loader.done{opacity:0;pointer-events:none}
+.loader-ring{width:48px;height:48px;border:3px solid #1e293b;border-top-color:#00d4aa;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{margin-top:16px;color:#64748b;font-size:14px}
+
+/* Period */
+.period{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b}
+.period button{background:none;border:none;color:#64748b;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
+.period button:hover{color:#e2e8f0;background:#1e293b}
+.period button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;margin-bottom:20px}
+.grid-2{grid-template-columns:repeat(auto-fit,minmax(500px,1fr))}
+.chart-box{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px}
+.chart-box:hover{border-color:#334155}
+.chart-title{font-size:16px;font-weight:600;margin-bottom:4px;color:#00d4aa}
+.chart-sub{font-size:13px;color:#64748b;margin-bottom:16px}
+.chart{min-height:360px}
+.full{grid-column:1/-1}
+
+/* Alerts */
+.alert-row{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0a0a1a;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.alert-row:hover{background:#1e293b}
+.alert-tag{min-width:100px;font-weight:600;color:#00d4aa;font-size:14px}
+.alert-bar{flex:1;height:24px;background:#0f172a;border-radius:6px;overflow:hidden}
+.alert-bar-fill{height:100%;border-radius:6px;display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:600;color:#fff;transition:width .8s}
+.alert-pct{min-width:60px;text-align:right;font-size:13px;font-weight:600}
+.alert-pct.up{color:#00d4aa}
+.alert-pct.down{color:#f87171}
+
+/* Correlation */
+.corr-legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;font-size:12px;color:#64748b}
+.corr-legend span{display:inline-block;width:16px;height:16px;border-radius:3px;margin-right:4px;vertical-align:middle}
+
+/* Stats */
+.stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;text-align:center}
+.stat-v{font-size:24px;font-weight:700;color:#00d4aa}
+.stat-l{font-size:11px;color:#64748b;margin-top:4px}
+
+/* Word list */
+.word-row{display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0a0a1a;border-radius:6px;margin-bottom:6px}
+.word-text{min-width:120px;font-weight:600;color:#00d4aa;font-size:13px}
+.word-bar{flex:1;height:20px;background:#0f172a;border-radius:4px;overflow:hidden}
+.word-bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:11px;font-weight:600;color:#fff}
+.word-count{min-width:50px;text-align:right;color:#64748b;font-size:12px}
+
+/* Error */
+.err-box{background:#0f172a;border:1px solid #7f1d1d;border-radius:12px;padding:24px;text-align:center}
+.err-box h3{color:#f87171;margin-bottom:8px}
+.empty{text-align:center;color:#64748b;padding:60px;font-size:14px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading intelligence...</div></div>
+
+<div class="wrap">
+<header>
+<h1>Sentiment & Intelligence</h1>
+<div class="period">
+<button class="on" data-d="1">1d</button>
+<button data-d="3">3d</button>
+<button data-d="7">7d</button>
+<button data-d="30">30d</button>
+</div>
+<a href="/" class="back">&larr; Back</a>
+</header>
+
+<div class="stats-bar" id="top-stats"></div>
+
+<div class="grid grid-2">
+<div class="chart-box full">
+<div class="chart-title">📊 Sentiment Timeline</div>
+<div class="chart-sub">Positive vs Negative vs Neutral posts per day</div>
+<div class="chart" id="s-timeline"></div>
+</div>
+
+<div class="chart-box">
+<div class="chart-title">🚀 News Velocity Alerts</div>
+<div class="chart-sub">Tickers with anomalous mention growth</div>
+<div class="chart" id="s-alerts"></div>
+</div>
+
+<div class="chart-box">
+<div class="chart-title">🔗 Correlation Matrix</div>
+<div class="chart-sub">Tags that appear together in posts</div>
+<div class="chart" id="s-corr"></div>
+</div>
+
+<div class="chart-box full">
+<div class="chart-title">⏰ Pre-Market Intelligence</div>
+<div class="chart-sub">MOEX: pre-market (before 10:00 MSK) / market hours / after-hours</div>
+<div class="chart" id="s-premarket"></div>
+</div>
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var days=7;
+var $=function(id){return document.getElementById(id)};
+
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,6000);
+
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+async function api(path){
+  var r=await fetch('/api'+path,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var d=await r.json();
+  if(d.error) throw new Error(d.error);
+  return d;
+}
+
+var charts={};
+function getChart(id){
+  if(!charts[id]){var el=$(id);if(!el)throw new Error('No #'+id);charts[id]=echarts.init(el,null,{renderer:'canvas'});}
+  return charts[id];
+}
+function resetCharts(){Object.keys(charts).forEach(function(id){try{charts[id].dispose();}catch(e){}});charts={};}
+
+// Period selector
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');
+    days=parseInt(btn.dataset.d);
+    loadAll();
+  });
+});
+
+async function loadAll(){
+  resetCharts();
+  ['s-timeline','s-alerts','s-corr','s-premarket'].forEach(function(id){var el=$(id);if(el)el.innerHTML='';});
+  try{
+    var st=await api('/sentiment/timeline?days='+days);
+    var vel=await api('/velocity/alerts?days='+days);
+    var corr=await api('/correlation/matrix?days='+days);
+    var pre=await api('/premarket/intel?days='+days);
+
+    // Stats
+    var totalPos=st.positive.reduce(function(a,b){return a+b},0);
+    var totalNeg=st.negative.reduce(function(a,b){return a+b},0);
+    $('top-stats').innerHTML=[
+      ['Positive',fmt(totalPos)],['Negative',fmt(totalNeg)],
+      ['Alerts',fmt(vel.alerts.length)],['Correlations',fmt(corr.tags.length)]
+    ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
+
+    renderSentiment(st);
+    renderAlerts(vel.alerts);
+    renderCorrelation(corr);
+    renderPremarket(pre);
+    hideLoader();
+  }catch(e){
+    console.error(e);
+    hideLoader();
+  }
+}
+
+function renderSentiment(data){
+  var c=getChart('s-timeline');
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:['Positive','Negative','Neutral'],textStyle:{color:'#94a3b8'},top:0},
+    grid:{left:50,right:30,top:50,bottom:40},
+    xAxis:{type:'category',data:data.days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45}},
+    yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    series:[
+      {name:'Positive',type:'line',smooth:true,data:data.positive,itemStyle:{color:'#00d4aa'},areaStyle:{color:'#00d4aa',opacity:.1}},
+      {name:'Negative',type:'line',smooth:true,data:data.negative,itemStyle:{color:'#f87171'},areaStyle:{color:'#f87171',opacity:.1}},
+      {name:'Neutral',type:'line',smooth:true,data:data.neutral,itemStyle:{color:'#64748b'},areaStyle:{color:'#64748b',opacity:.05}}
+    ]
+  },true);
+}
+
+function renderAlerts(alerts){
+  if(!alerts||!alerts.length){$('s-alerts').innerHTML='<div class="empty">No velocity alerts</div>';return;}
+  var maxC=Math.max.apply(null,alerts.map(function(a){return a.pct}))||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e'];
+  $('s-alerts').innerHTML=alerts.slice(0,15).map(function(a,i){
+    var pct=Math.round((a.pct/maxC)*100);
+    return'<div class="alert-row"><div class="alert-tag">'+esc(a.tag)+'</div><div class="alert-bar"><div class="alert-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+a.current+' vs '+a.previous+'</div></div><div class="alert-pct up">+'+a.pct+'%</div></div>';
+  }).join('');
+}
+
+function renderCorrelation(data){
+  var c=getChart('s-corr');
+  if(!data.tags||!data.tags.length){$('s-corr').innerHTML='<div class="empty">No correlation data</div>';return;}
+  var n=data.tags.length;
+  var heatData=[];
+  for(var i=0;i<n;i++)for(var j=0;j<n;j++)if(data.matrix[i]&&data.matrix[i][j]>0)heatData.push([j,i,data.matrix[i][j]]);
+  var maxVal=Math.max.apply(null,heatData.map(function(d){return d[2]}))||1;
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{formatter:function(p){return data.tags[p.data[1]]+' + '+data.tags[p.data[0]]+': '+p.data[2]+' posts';}},
+    grid:{left:80,right:20,top:20,bottom:80},
+    xAxis:{type:'category',data:data.tags,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45,fontSize:9}},
+    yAxis:{type:'category',data:data.tags,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',fontSize:9}},
+    visualMap:{min:0,max:maxVal,orient:'horizontal',left:'center',bottom:0,inRange:{color:['#0f172a','#1e293b','#00d4aa','#00b894','#fdcb6e']},textStyle:{color:'#64748b'}},
+    series:[{type:'heatmap',data:heatData,label:{show:false}}]
+  },true);
+}
+
+function renderPremarket(data){
+  var c=getChart('s-premarket');
+  c.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis'},
+    legend:{data:['Pre-market','Market hours','After-hours'],textStyle:{color:'#94a3b8'},top:0},
+    grid:{left:50,right:30,top:50,bottom:40},
+    xAxis:{type:'category',data:data.days,axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b',rotate:45}},
+    yAxis:{type:'value',name:'Posts',splitLine:{lineStyle:{color:'#1e293b'}},axisLine:{lineStyle:{color:'#334155'}},axisLabel:{color:'#64748b'}},
+    series:[
+      {name:'Pre-market',type:'bar',stack:'total',data:data.premarket,itemStyle:{color:'#fdcb6e'}},
+      {name:'Market hours',type:'bar',stack:'total',data:data.market,itemStyle:{color:'#00d4aa'}},
+      {name:'After-hours',type:'bar',stack:'total',data:data.afterhours,itemStyle:{color:'#6c5ce7'}}
+    ]
+  },true);
+}
+
+window.addEventListener('resize',function(){Object.values(charts).forEach(function(c){try{if(c)c.resize();}catch(e){}})});
+loadAll();
+})();
+</script>
+</body>
+</html>'''
+
+
+# ─── SPA: Viral & Cross-Market ───────────────────────────────
+VIRAL_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viral & Cross-Market — TG Parser</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e2e8f0;line-height:1.5}
+.wrap{max-width:1400px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px}
+h1{color:#00d4aa;font-size:28px;font-weight:700}
+.back{color:#64748b;text-decoration:none;font-size:14px}
+.back:hover{color:#00d4aa}
+
+/* Loader */
+#loader{position:fixed;inset:0;background:#0a0a1a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .4s}
+#loader.done{opacity:0;pointer-events:none}
+.loader-ring{width:48px;height:48px;border:3px solid #1e293b;border-top-color:#00d4aa;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{margin-top:16px;color:#64748b;font-size:14px}
+
+/* Period */
+.period{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b}
+.period button{background:none;border:none;color:#64748b;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
+.period button:hover{color:#e2e8f0;background:#1e293b}
+.period button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;margin-bottom:20px}
+.grid-2{grid-template-columns:repeat(auto-fit,minmax(500px,1fr))}
+.chart-box{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px}
+.chart-box:hover{border-color:#334155}
+.chart-title{font-size:16px;font-weight:600;margin-bottom:4px;color:#00d4aa}
+.chart-sub{font-size:13px;color:#64748b;margin-bottom:16px}
+.chart{min-height:360px}
+.full{grid-column:1/-1}
+
+/* Viral posts */
+.vpost{background:#0a0a1a;border-radius:10px;padding:14px;margin-bottom:10px;font-size:13px;cursor:pointer;transition:.15s}
+.vpost:hover{background:#1e293b}
+.vpost-head{display:flex;justify-content:space-between;margin-bottom:6px;font-size:11px;color:#64748b}
+.vpost-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:60px;overflow:hidden;line-height:1.5}
+.vpost-stats{display:flex;gap:16px;margin-top:8px;font-size:12px;color:#64748b}
+.vpost-stats span{color:#00d4aa;font-weight:600}
+
+/* Sector */
+.sector-row{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0a0a1a;border-radius:8px;margin-bottom:8px}
+.sector-name{min-width:140px;font-weight:600;color:#00d4aa;font-size:14px}
+.sector-bar{flex:1;height:28px;background:#0f172a;border-radius:6px;overflow:hidden}
+.sector-bar-fill{height:100%;border-radius:6px;display:flex;align-items:center;padding:0 10px;font-size:12px;font-weight:600;color:#fff;transition:width .8s}
+.sector-count{min-width:60px;text-align:right;color:#64748b;font-size:12px}
+
+/* Word cloud */
+.cloud{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;min-height:300px;padding:20px}
+.cloud-tag{padding:8px 18px;border-radius:20px;font-weight:600;cursor:pointer;transition:transform .2s,opacity .2s;opacity:.85}
+.cloud-tag:hover{transform:scale(1.1);opacity:1}
+
+/* Cross-market */
+.xpost{background:#0a0a1a;border-radius:10px;padding:12px;margin-bottom:8px;font-size:13px}
+.xpost-head{display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;color:#64748b}
+.xpost-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:50px;overflow:hidden}
+.xticker{display:inline-block;background:#1e293b;color:#00d4aa;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;margin:3px}
+
+/* Stats */
+.stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;text-align:center}
+.stat-v{font-size:24px;font-weight:700;color:#00d4aa}
+.stat-l{font-size:11px;color:#64748b;margin-top:4px}
+
+.empty{text-align:center;color:#64748b;padding:60px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading viral & cross-market...</div></div>
+
+<div class="wrap">
+<header>
+<h1>Viral & Cross-Market</h1>
+<div class="period">
+<button class="on" data-d="1">1d</button>
+<button data-d="3">3d</button>
+<button data-d="7">7d</button>
+<button data-d="30">30d</button>
+</div>
+<a href="/" class="back">&larr; Back</a>
+</header>
+
+<div class="stats-bar" id="top-stats"></div>
+
+<div class="grid grid-2">
+<div class="chart-box">
+<div class="chart-title">🔥 Top 10 Viral Posts</div>
+<div class="chart-sub">Most viewed posts</div>
+<div id="v-posts"></div>
+</div>
+
+<div class="chart-box">
+<div class="chart-title">🏭 Sector Rotation</div>
+<div class="chart-sub">Mentions by industry sector</div>
+<div class="chart" id="v-sector"></div>
+</div>
+
+<div class="chart-box full">
+<div class="chart-title">☁️ Word Cloud</div>
+<div class="chart-sub">Most frequent words in posts</div>
+<div id="v-cloud" class="cloud"></div>
+</div>
+
+<div class="chart-box full">
+<div class="chart-title">🌍 Cross-Market Intelligence</div>
+<div class="chart-sub">Posts mentioning oil, USD, EUR, rates + co-mentioned tickers</div>
+<div id="v-cross"></div>
+<div id="v-tickers" style="margin-top:12px"></div>
+</div>
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var days=7;
+var $=function(id){return document.getElementById(id)};
+
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,6000);
+
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+async function api(path){
+  var r=await fetch('/api'+path,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var d=await r.json();
+  if(d.error) throw new Error(d.error);
+  return d;
+}
+
+// Period selector
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');
+    days=parseInt(btn.dataset.d);
+    loadAll();
+  });
+});
+
+async function loadAll(){
+  try{
+    var vir=await api('/viral/posts?days='+days+'&limit=10');
+    var sec=await api('/sector/rotation?days='+days);
+    var wc=await api('/wordcloud?days='+days+'&limit=60');
+    var xm=await api('/crossmarket/links?days='+days);
+
+    // Stats
+    var totalViews=vir.posts.reduce(function(a,p){return a+(p.views||0)},0);
+    $('top-stats').innerHTML=[
+      ['Viral Posts',fmt(vir.posts.length)],['Total Views',fmt(totalViews)],
+      ['Sectors',fmt(sec.sectors.length)],['Macro Posts',fmt(xm.posts.length)]
+    ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
+
+    renderViral(vir.posts);
+    renderSector(sec.sectors);
+    renderCloud(wc.words);
+    renderCrossMarket(xm);
+    hideLoader();
+  }catch(e){
+    console.error(e);
+    hideLoader();
+  }
+}
+
+function renderViral(posts){
+  if(!posts||!posts.length){$('v-posts').innerHTML='<div class="empty">No viral posts</div>';return;}
+  $('v-posts').innerHTML=posts.map(function(p,i){
+    var ch=p.channel||'markettwits';
+    var link='https://t.me/'+ch+'/'+p.id;
+    return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
+      '<div class="vpost-head"><span>#'+(i+1)+' | @'+esc(ch)+'</span><span>'+(p.published?p.published.slice(0,16).replace(\'T\',\' \'):\'\')+'</span></div>'+
+      '<div class="vpost-body">'+esc(p.text||'(no text)').slice(0,200)+'</div>'+
+      '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div>'+
+      '</div>';
+  }).join('');
+}
+
+function renderSector(sectors){
+  if(!sectors||!sectors.length){$('v-sector').innerHTML='<div class="empty">No sector data</div>';return;}
+  var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+  $('v-sector').innerHTML=sectors.map(function(s,i){
+    var pct=Math.round((s.count/maxC)*100);
+    return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/sec.total)*100)+'%</div></div>';
+  }).join('');
+}
+
+function renderCloud(words){
+  if(!words||!words.length){$('v-cloud').innerHTML='<div class="empty">No word data</div>';return;}
+  var maxC=words[0].count||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+  $('v-cloud').innerHTML=words.map(function(w,i){
+    var size=10+Math.round((w.count/maxC)*28);
+    return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
+  }).join('');
+}
+
+function renderCrossMarket(data){
+  if(!data.posts||!data.posts.length){$('v-cross').innerHTML='<div class="empty">No cross-market posts</div>';$('v-tickers').innerHTML='';return;}
+  $('v-cross').innerHTML=data.posts.slice(0,10).map(function(p){
+    var ch=p.channel||'markettwits';
+    var link='https://t.me/'+ch+'/'+p.id;
+    return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
+      '<div class="xpost-head"><span>@'+esc(ch)+'</span><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace(\'T\',\' \'):\'\')+'</span></div>'+
+      '<div class="xpost-body">'+esc(p.text||'(no text)').slice(0,250)+'</div></div>';
+  }).join('');
+  if(data.tickers&&data.tickers.length){
+    $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
+      data.tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
+  }else{$('v-tickers').innerHTML='';}
+}
+
+loadAll();
+})();
+</script>
+</body>
+</html>'''
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     return HTMLResponse(content=INDEX_HTML)
@@ -1032,6 +1600,16 @@ async def analytics_page():
 @app.get("/tag-daily", response_class=HTMLResponse)
 async def tag_daily_page():
     return HTMLResponse(content=TAG_DAILY_HTML)
+
+
+@app.get("/sentiment", response_class=HTMLResponse)
+async def sentiment_page():
+    return HTMLResponse(content=SENTIMENT_HTML)
+
+
+@app.get("/viral", response_class=HTMLResponse)
+async def viral_page():
+    return HTMLResponse(content=VIRAL_HTML)
 
 
 # ─── API: Stats ──────────────────────────────────────────────
@@ -1594,3 +2172,404 @@ async def analytics_export_csv():
     except Exception as e:
         logger.error(f"/analytics/export-csv error: {e}"); traceback.print_exc()
         return json_response({"error": str(e)}, 500)
+
+# ═══════════════════════════════════════════════════════════
+# ═══ NEW: Sentiment & Intelligence API ═══════════════════
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/api/sentiment/timeline")
+async def sentiment_timeline(days: int = Query(7, ge=1, le=30)):
+    """Daily sentiment scores: positive / negative / neutral / total"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT
+                    ((published_at AT TIME ZONE 'UTC')::date)::text as d,
+                    text
+                FROM posts
+                WHERE published_at > :since AND text IS NOT NULL AND text != ''
+                ORDER BY d
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            from collections import defaultdict
+            daily = defaultdict(lambda: {"pos": 0, "neg": 0, "neu": 0, "total": 0})
+
+            for r in rows:
+                txt = (r["text"] or "").lower()
+                pos_count = sum(1 for w in SENTIMENT_POSITIVE if w in txt)
+                neg_count = sum(1 for w in SENTIMENT_NEGATIVE if w in txt)
+                day = r["d"]
+                daily[day]["total"] += 1
+                if pos_count > neg_count:
+                    daily[day]["pos"] += 1
+                elif neg_count > pos_count:
+                    daily[day]["neg"] += 1
+                else:
+                    daily[day]["neu"] += 1
+
+            labels = []
+            pos_series = []
+            neg_series = []
+            neu_series = []
+            for i in range(days + 1):
+                dt = since + timedelta(days=i)
+                d_str = dt.strftime("%Y-%m-%d")
+                labels.append(dt.strftime("%m-%d"))
+                pos_series.append(daily[d_str]["pos"])
+                neg_series.append(daily[d_str]["neg"])
+                neu_series.append(daily[d_str]["neu"])
+
+            return {
+                "days": labels,
+                "positive": pos_series,
+                "negative": neg_series,
+                "neutral": neu_series,
+            }
+    except Exception as e:
+        logger.error(f"/sentiment/timeline error: {e}"); traceback.print_exc()
+        return json_response({"days": [], "positive": [], "negative": [], "neutral": [], "error": str(e)}, 500)
+
+
+@app.get("/api/sentiment/top-words")
+async def sentiment_top_words(days: int = Query(7, ge=1, le=30), sentiment: str = Query("positive")):
+    """Most frequent words from posts with given sentiment"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT text FROM posts
+                WHERE published_at > :since AND text IS NOT NULL AND text != ''
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            lexicon = SENTIMENT_POSITIVE if sentiment == "positive" else SENTIMENT_NEGATIVE
+            word_counts = {}
+            for r in rows:
+                txt = (r["text"] or "").lower()
+                pos = sum(1 for w in SENTIMENT_POSITIVE if w in txt)
+                neg = sum(1 for w in SENTIMENT_NEGATIVE if w in txt)
+                if sentiment == "positive" and pos > neg:
+                    for w in SENTIMENT_POSITIVE:
+                        if w in txt:
+                            word_counts[w] = word_counts.get(w, 0) + 1
+                elif sentiment == "negative" and neg > pos:
+                    for w in SENTIMENT_NEGATIVE:
+                        if w in txt:
+                            word_counts[w] = word_counts.get(w, 0) + 1
+
+            top = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)[:30]
+            return {"words": [{"text": w, "count": c} for w, c in top]}
+    except Exception as e:
+        logger.error(f"/sentiment/top-words error: {e}"); traceback.print_exc()
+        return json_response({"words": [], "error": str(e)}, 500)
+
+
+@app.get("/api/velocity/alerts")
+async def velocity_alerts(days: int = Query(7, ge=1, le=30)):
+    """Tickers with anomalous mention growth vs previous period"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            prev_since = since - timedelta(days=days)
+
+            # Current period mentions
+            curr = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :since
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt
+                FROM tagged GROUP BY tag
+            """), {"since": since})
+            curr_map = {r["tag"]: r["cnt"] for r in curr.mappings().all()}
+
+            # Previous period mentions
+            prev = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts
+                    WHERE published_at > :prev_since AND published_at <= :since
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt
+                FROM tagged GROUP BY tag
+            """), {"prev_since": prev_since, "since": since})
+            prev_map = {r["tag"]: r["cnt"] for r in prev.mappings().all()}
+
+            alerts = []
+            all_tags = set(curr_map.keys()) | set(prev_map.keys())
+            for tag in all_tags:
+                c = curr_map.get(tag, 0)
+                p = prev_map.get(tag, 0)
+                if c + p < 3:
+                    continue
+                if p == 0:
+                    pct = 100
+                else:
+                    pct = int(((c - p) / p) * 100)
+                if c > p and pct >= 50:  # Only positive anomalies
+                    alerts.append({"tag": tag, "current": c, "previous": p, "pct": pct})
+
+            alerts.sort(key=lambda x: x["pct"], reverse=True)
+            return {"alerts": alerts[:20]}
+    except Exception as e:
+        logger.error(f"/velocity/alerts error: {e}"); traceback.print_exc()
+        return json_response({"alerts": [], "error": str(e)}, 500)
+
+
+@app.get("/api/correlation/matrix")
+async def correlation_matrix(days: int = Query(7, ge=1, le=30)):
+    """Correlation matrix: which tags appear together in same posts"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                WITH post_tags AS (
+                    SELECT id, json_array_elements_text(hashtags) as tag
+                    FROM posts WHERE published_at > :since
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 1
+                )
+                SELECT pt1.tag as tag1, pt2.tag as tag2, COUNT(*) as cnt
+                FROM post_tags pt1
+                JOIN post_tags pt2 ON pt1.id = pt2.id AND pt1.tag < pt2.tag
+                GROUP BY pt1.tag, pt2.tag
+                HAVING COUNT(*) >= 2
+                ORDER BY cnt DESC
+                LIMIT 200
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            # Collect unique tags
+            all_tags = set()
+            pairs = []
+            for r in rows:
+                all_tags.add(r["tag1"])
+                all_tags.add(r["tag2"])
+                pairs.append({"t1": r["tag1"], "t2": r["tag2"], "count": r["cnt"]})
+
+            tags = sorted(all_tags)[:30]  # Limit for display
+            tag_idx = {t: i for i, t in enumerate(tags)}
+            n = len(tags)
+            matrix = [[0] * n for _ in range(n)]
+
+            for p in pairs:
+                if p["t1"] in tag_idx and p["t2"] in tag_idx:
+                    i, j = tag_idx[p["t1"]], tag_idx[p["t2"]]
+                    matrix[i][j] = p["count"]
+                    matrix[j][i] = p["count"]
+
+            return {"tags": tags, "matrix": matrix}
+    except Exception as e:
+        logger.error(f"/correlation/matrix error: {e}"); traceback.print_exc()
+        return json_response({"tags": [], "matrix": [], "error": str(e)}, 500)
+
+
+@app.get("/api/premarket/intel")
+async def premarket_intel(days: int = Query(7, ge=1, le=30)):
+    """Posts segmented by time: pre-market / market hours / after-hours (MOEX: 10:00-18:45 MSK = 07:00-15:45 UTC)"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT
+                    ((published_at AT TIME ZONE 'UTC')::date)::text as d,
+                    CASE
+                        WHEN EXTRACT(HOUR FROM published_at)::int BETWEEN 7 AND 14
+                             THEN 'market'
+                        WHEN EXTRACT(HOUR FROM published_at)::int < 7
+                             THEN 'premarket'
+                        ELSE 'afterhours'
+                    END as segment,
+                    COUNT(*) as cnt,
+                    SUM(views_count) as total_views
+                FROM posts
+                WHERE published_at > :since
+                GROUP BY d, segment
+                ORDER BY d, segment
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            labels = []
+            pre_series = []
+            market_series = []
+            after_series = []
+
+            for i in range(days + 1):
+                dt = since + timedelta(days=i)
+                d_str = dt.strftime("%Y-%m-%d")
+                labels.append(dt.strftime("%m-%d"))
+                day_data = {r["segment"]: r["cnt"] for r in rows if r["d"] == d_str}
+                pre_series.append(day_data.get("premarket", 0))
+                market_series.append(day_data.get("market", 0))
+                after_series.append(day_data.get("afterhours", 0))
+
+            return {
+                "days": labels,
+                "premarket": pre_series,
+                "market": market_series,
+                "afterhours": after_series,
+            }
+    except Exception as e:
+        logger.error(f"/premarket/intel error: {e}"); traceback.print_exc()
+        return json_response({"days": [], "premarket": [], "market": [], "afterhours": [], "error": str(e)}, 500)
+
+
+# ═══════════════════════════════════════════════════════════
+# ═══ NEW: Viral & Cross-Market API ═══════════════════════
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/api/viral/posts")
+async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, ge=1, le=20)):
+    """Top most-viewed posts"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, views_count, forwards_count,
+                       published_at, c.username as channel_username
+                FROM posts p
+                LEFT JOIN channels c ON p.channel_id = c.id
+                WHERE published_at > :since
+                ORDER BY views_count DESC
+                LIMIT :limit
+            """), {"since": since, "limit": limit})
+            rows = result.mappings().all()
+            return {"posts": [{
+                "id": r["telegram_message_id"],
+                "text": r["text"],
+                "views": r["views_count"] or 0,
+                "forwards": r["forwards_count"] or 0,
+                "published": r["published_at"].isoformat() if r["published_at"] else None,
+                "channel": r["channel_username"] or "markettwits",
+            } for r in rows]}
+    except Exception as e:
+        logger.error(f"/viral/posts error: {e}"); traceback.print_exc()
+        return json_response({"posts": [], "error": str(e)}, 500)
+
+
+@app.get("/api/sector/rotation")
+async def sector_rotation(days: int = Query(7, ge=1, le=30)):
+    """Tag mentions grouped by sector"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :since
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                      AND json_array_length(hashtags) > 0
+                )
+                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt
+                FROM tagged
+                GROUP BY tag
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            from collections import defaultdict
+            sector_counts = defaultdict(int)
+            for r in rows:
+                tag = r["tag"].replace("#", "").upper()
+                sector = TICKER_TO_SECTOR.get(tag, "Other")
+                sector_counts[sector] += r["cnt"]
+
+            sectors = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)
+            return {
+                "sectors": [{"name": s, "count": c} for s, c in sectors],
+                "total": sum(c for _, c in sectors),
+            }
+    except Exception as e:
+        logger.error(f"/sector/rotation error: {e}"); traceback.print_exc()
+        return json_response({"sectors": [], "total": 0, "error": str(e)}, 500)
+
+
+@app.get("/api/wordcloud")
+async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(50, ge=1, le=100)):
+    """Word frequency cloud from post texts"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT text FROM posts
+                WHERE published_at > :since AND text IS NOT NULL AND text != ''
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            import re
+            from collections import Counter
+            counter = Counter()
+            for r in rows:
+                words = re.findall(r'[а-яА-Яa-zA-ZёЁ#@]+', (r["text"] or ""))
+                for w in words:
+                    w = w.lower()
+                    if len(w) < 3 or w in STOP_WORDS or w.startswith("http"):
+                        continue
+                    counter[w] += 1
+
+            top = counter.most_common(limit)
+            return {"words": [{"text": w, "count": c} for w, c in top]}
+    except Exception as e:
+        logger.error(f"/wordcloud error: {e}"); traceback.print_exc()
+        return json_response({"words": [], "error": str(e)}, 500)
+
+
+@app.get("/api/crossmarket/links")
+async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
+    """Posts mentioning macro indicators (oil, USD, RUB) and related tickers"""
+    try:
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            macro_keywords = ["нефть", "brent", "wti", "баррель", "usd", "доллар", "eur", "евро", "рубль", "cny", "юань", "ключевая ставка", "цб", "ставка"]
+            pattern = "|".join(macro_keywords)
+
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, views_count, published_at,
+                       c.username as channel_username
+                FROM posts p
+                LEFT JOIN channels c ON p.channel_id = c.id
+                WHERE published_at > :since
+                  AND text ~* :pattern
+                ORDER BY views_count DESC
+                LIMIT 30
+            """), {"since": since, "pattern": pattern})
+            rows = result.mappings().all()
+
+            # Also get ticker co-mentions
+            ticker_result = await session.execute(text("""
+                WITH tagged AS (
+                    SELECT * FROM posts WHERE published_at > :since
+                      AND text ~* :pattern
+                      AND hashtags IS NOT NULL
+                      AND json_typeof(hashtags) = 'array'
+                )
+                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt,
+                       SUM(views_count) as total_views
+                FROM tagged
+                GROUP BY tag
+                ORDER BY cnt DESC
+                LIMIT 15
+            """), {"since": since, "pattern": pattern})
+            tickers = [{"tag": r["tag"], "count": r["cnt"], "views": r["total_views"] or 0}
+                       for r in ticker_result.mappings().all()]
+
+            return {
+                "posts": [{
+                    "id": r["telegram_message_id"],
+                    "text": r["text"],
+                    "views": r["views_count"] or 0,
+                    "published": r["published_at"].isoformat() if r["published_at"] else None,
+                    "channel": r["channel_username"] or "markettwits",
+                } for r in rows],
+                "tickers": tickers,
+            }
+    except Exception as e:
+        logger.error(f"/crossmarket/links error: {e}"); traceback.print_exc()
+        return json_response({"posts": [], "tickers": [], "error": str(e)}, 500)
+
