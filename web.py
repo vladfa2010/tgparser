@@ -1425,6 +1425,8 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 .stat-l{font-size:11px;color:#64748b;margin-top:4px}
 
 .empty{text-align:center;color:#64748b;padding:60px;font-size:14px}
+.btn{background:#00d4aa;color:#0a0a1a;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+.btn:hover{opacity:.85}
 </style>
 </head>
 <body>
@@ -1466,7 +1468,7 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 <div class="chart-box full">
 <div class="chart-title">🌍 Cross-Market Intelligence</div>
 <div class="chart-sub">Posts mentioning oil, USD, EUR, rates + co-mentioned tickers</div>
-<div id="v-cross"></div>
+<div id="v-cross"><div style="text-align:center;padding:30px"><button id="v-cross-btn" class="btn" onclick="loadCrossMarket()">Load Cross-Market Data</button></div></div>
 <div id="v-tickers" style="margin-top:12px"></div>
 </div>
 </div>
@@ -1477,10 +1479,9 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 'use strict';
 var days=7;
 var $=function(id){return document.getElementById(id)};
-var loading={};
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
-setTimeout(hideLoader,8000);
+setTimeout(hideLoader,6000);
 
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -1489,12 +1490,22 @@ function setLoading(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-al
 function setError(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#f87171;padding:40px;font-size:14px">'+esc(msg)+'</div>';}
 function setEmpty(id,msg){var el=$(id);if(el)el.innerHTML='<div class="empty">'+(msg||'No data')+'</div>';}
 
+// Fetch with 15s timeout
 async function api(path){
-  var r=await fetch('/api'+path,{cache:'no-store'});
-  if(!r.ok) throw new Error('HTTP '+r.status);
-  var d=await r.json();
-  if(d.error) throw new Error(d.error);
-  return d;
+  var ctrl=new AbortController();
+  var t=setTimeout(function(){ctrl.abort();},15000);
+  try{
+    var r=await fetch('/api'+path,{cache:'no-store',signal:ctrl.signal});
+    clearTimeout(t);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    return d;
+  }catch(e){
+    clearTimeout(t);
+    if(e.name==='AbortError') throw new Error('Timeout (15s)');
+    throw e;
+  }
 }
 
 // Period selector
@@ -1507,95 +1518,91 @@ document.querySelectorAll('.period button').forEach(function(btn){
   });
 });
 
+async function loadSection(name,url,renderFn){
+  try{
+    var data=await api(url);
+    renderFn(data);
+  }catch(e){
+    console.error(name+':',e);
+    if(name==='viral') setError('v-posts',e.message);
+    if(name==='sector') setError('v-sector',e.message);
+    if(name==='wordcloud') setError('v-cloud',e.message);
+  }
+}
+
+function renderViral(viralData){
+  var posts=(viralData&&viralData.posts)||[];
+  if(!posts.length){setEmpty('v-posts','No viral posts for this period');return;}
+  $('v-posts').innerHTML=posts.map(function(p,i){
+    var ch=p.channel||'markettwits';
+    var link='https://t.me/'+ch+'/'+p.id;
+    return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
+      '<div class="vpost-head"><span>#'+(i+1)+' | @'+esc(ch)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
+      '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,200))+'</div>'+
+      '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div>'+
+      '</div>';
+  }).join('');
+}
+
+function renderSector(sectorData){
+  var sectors=(sectorData&&sectorData.sectors)||[];
+  var total=(sectorData&&sectorData.total)||1;
+  if(!sectors.length){setEmpty('v-sector','No sector data');return;}
+  var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+  $('v-sector').innerHTML=sectors.map(function(s,i){
+    var pct=Math.round((s.count/maxC)*100);
+    return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
+  }).join('');
+}
+
+function renderCloud(cloudData){
+  var words=(cloudData&&cloudData.words)||[];
+  if(!words.length){setEmpty('v-cloud','No word data');return;}
+  var maxC=words[0].count||1;
+  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+  $('v-cloud').innerHTML=words.map(function(w,i){
+    var size=10+Math.round((w.count/maxC)*28);
+    return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
+  }).join('');
+}
+
+window.loadCrossMarket=function(){
+  $('v-cross').innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Loading cross-market data...</div>';
+  loadSection('crossmarket','/crossmarket/links?days='+days,function(crossData){
+    var posts=(crossData&&crossData.posts)||[];
+    var tickers=(crossData&&crossData.tickers)||[];
+    if(!posts.length){setEmpty('v-cross','No cross-market posts');$('v-tickers').innerHTML='';return;}
+    $('v-cross').innerHTML=posts.slice(0,10).map(function(p){
+      var ch=p.channel||'markettwits';
+      var link='https://t.me/'+ch+'/'+p.id;
+      return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
+        '<div class="xpost-head"><span>@'+esc(ch)+'</span><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
+        '<div class="xpost-body">'+esc((p.text||'(no text)').slice(0,250))+'</div></div>';
+    }).join('');
+    if(tickers.length){
+      $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
+        tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
+    }else{$('v-tickers').innerHTML='';}
+  });
+};
+
 async function loadAll(){
-  // Set loading states individually
   setLoading('v-posts','Loading viral posts...');
   setLoading('v-sector','Loading sectors...');
   setLoading('v-cloud','Loading word cloud...');
-  setLoading('v-cross','Loading cross-market...');
+  $('v-cross').innerHTML='<div style="text-align:center;padding:30px"><button id="v-cross-btn" class="btn" onclick="loadCrossMarket()">Load Cross-Market Data</button></div>';
   $('v-tickers').innerHTML='';
-  $('top-stats').innerHTML='<div class="stat" style="grid-column:1/-1"><div class="stat-v">-</div><div class="stat-l">Loading...</div></div>';
 
-  // Load each section independently — one failure doesn't kill others
-  var viralData=null, sectorData=null, cloudData=null, crossData=null;
-
-  try{viralData=await api('/viral/posts?days='+days+'&limit=10');}catch(e){console.error('viral/posts:',e);setError('v-posts',e.message);}
-  try{sectorData=await api('/sector/rotation?days='+days);}catch(e){console.error('sector/rotation:',e);setError('v-sector',e.message);}
-  try{cloudData=await api('/wordcloud?days='+days+'&limit=60');}catch(e){console.error('wordcloud:',e);setError('v-cloud',e.message);}
-  try{crossData=await api('/crossmarket/links?days='+days);}catch(e){console.error('crossmarket/links:',e);setError('v-cross',e.message);}
-
-  // Render viral posts
-  if(viralData){
-    var posts=viralData.posts||[];
-    if(!posts.length){setEmpty('v-posts','No viral posts for this period');}
-    else{$('v-posts').innerHTML=posts.map(function(p,i){
-      var ch=p.channel||'markettwits';
-      var link='https://t.me/'+ch+'/'+p.id;
-      return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
-        '<div class="vpost-head"><span>#'+(i+1)+' | @'+esc(ch)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
-        '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,200))+'</div>'+
-        '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div>'+
-        '</div>';
-    }).join('');}
-  }
-
-  // Render sectors
-  if(sectorData){
-    var sectors=sectorData.sectors||[];
-    var total=sectorData.total||1;
-    if(!sectors.length){setEmpty('v-sector','No sector data');}
-    else{
-      var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
-      var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-      $('v-sector').innerHTML=sectors.map(function(s,i){
-        var pct=Math.round((s.count/maxC)*100);
-        return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
-      }).join('');
-    }
-  }
-
-  // Render word cloud
-  if(cloudData){
-    var words=cloudData.words||[];
-    if(!words.length){setEmpty('v-cloud','No word data');}
-    else{
-      var maxC=words[0].count||1;
-      var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-      $('v-cloud').innerHTML=words.map(function(w,i){
-        var size=10+Math.round((w.count/maxC)*28);
-        return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
-      }).join('');
-    }
-  }
-
-  // Render cross-market
-  if(crossData){
-    var posts=crossData.posts||[];
-    var tickers=crossData.tickers||[];
-    if(!posts.length){setEmpty('v-cross','No cross-market posts');$('v-tickers').innerHTML='';}
-    else{
-      $('v-cross').innerHTML=posts.slice(0,10).map(function(p){
-        var ch=p.channel||'markettwits';
-        var link='https://t.me/'+ch+'/'+p.id;
-        return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
-          '<div class="xpost-head"><span>@'+esc(ch)+'</span><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
-          '<div class="xpost-body">'+esc((p.text||'(no text)').slice(0,250))+'</div></div>';
-      }).join('');
-      if(tickers.length){
-        $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
-          tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
-      }else{$('v-tickers').innerHTML='';}
-    }
-  }
+  await loadSection('viral','/viral/posts?days='+days+'&limit=10',renderViral);
+  await loadSection('sector','/sector/rotation?days='+days,renderSector);
+  await loadSection('wordcloud','/wordcloud?days='+days+'&limit=60',renderCloud);
 
   // Stats
-  var vPosts=viralData?(viralData.posts||[]).length:'?';
-  var vViews=viralData?(viralData.posts||[]).reduce(function(a,p){return a+(p.views||0)},0):'?';
-  var nSectors=sectorData?(sectorData.sectors||[]).length:'?';
-  var nMacro=crossData?(crossData.posts||[]).length:'?';
+  var vPostCount=(function(){try{return ($('v-posts').querySelectorAll('.vpost')||[]).length;}catch(e){return'?';}})();
+  var vSectorCount=(function(){try{return ($('v-sector').querySelectorAll('.sector-row')||[]).length;}catch(e){return'?';}})();
   $('top-stats').innerHTML=[
-    ['Viral Posts',fmt(vPosts)],['Total Views',fmt(vViews)],
-    ['Sectors',fmt(nSectors)],['Macro Posts',fmt(nMacro)]
+    ['Viral Posts',fmt(vPostCount)],['Sectors',fmt(vSectorCount)]
   ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(String(s[1]))+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
 
   hideLoader();
@@ -2556,27 +2563,39 @@ async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(5
 
 @app.get("/api/crossmarket/links")
 async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
+    """Lightweight: search hashtags for macro keywords instead of full-text ILIKE"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
-            where_clause = _macro_where("p.")
+            # Search hashtags for macro-related tickers instead of text ILIKE
+            macro_tags = ["#нефть", "#brent", "#wti", "#usd", "#доллар", "#eur", "#рубль", "#cny", "#юань", "#ставка", "#цб", "#moex"]
+            tag_jsons = [[t] for t in macro_tags]
 
-            result = await session.execute(text(f"""
+            result = await session.execute(text("""
                 SELECT telegram_message_id, text, views_count, published_at,
                        c.username as channel_username
                 FROM posts p
                 LEFT JOIN channels c ON p.channel_id = c.id
-                WHERE p.published_at > :since AND ({where_clause})
+                WHERE p.published_at > :since
+                  AND (
+                      hashtags::jsonb @> ANY(:tag_list)
+                      OR text ILIKE '%нефть%' OR text ILIKE '%доллар%' OR text ILIKE '%ставка%'
+                      OR text ILIKE '%рубль%' OR text ILIKE '%brent%'
+                  )
                 ORDER BY p.views_count DESC
                 LIMIT 30
-            """), {"since": since})
+            """), {"since": since, "tag_list": tag_jsons})
             rows = result.mappings().all()
 
-            # Also get ticker co-mentions
-            ticker_result = await session.execute(text(f"""
+            # Ticker co-mentions from same posts
+            ticker_result = await session.execute(text("""
                 WITH tagged AS (
                     SELECT * FROM posts WHERE published_at > :since
-                      AND ({_macro_where()})
+                      AND (
+                          hashtags::jsonb @> ANY(:tag_list)
+                          OR text ILIKE '%нефть%' OR text ILIKE '%доллар%' OR text ILIKE '%ставка%'
+                          OR text ILIKE '%рубль%' OR text ILIKE '%brent%'
+                      )
                       AND hashtags IS NOT NULL
                       AND json_typeof(hashtags) = 'array'
                 )
@@ -2586,7 +2605,7 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
                 GROUP BY tag
                 ORDER BY cnt DESC
                 LIMIT 15
-            """), {"since": since})
+            """), {"since": since, "tag_list": tag_jsons})
             tickers = [{"tag": r["tag"], "count": r["cnt"], "views": r["total_views"] or 0}
                        for r in ticker_result.mappings().all()]
 
