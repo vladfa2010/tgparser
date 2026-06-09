@@ -1477,12 +1477,17 @@ h1{color:#00d4aa;font-size:28px;font-weight:700}
 'use strict';
 var days=7;
 var $=function(id){return document.getElementById(id)};
+var loading={};
 
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
-setTimeout(hideLoader,6000);
+setTimeout(hideLoader,8000);
 
 function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function setLoading(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#64748b;padding:40px;font-size:14px">'+(msg||'Loading...')+'</div>';}
+function setError(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#f87171;padding:40px;font-size:14px">'+esc(msg)+'</div>';}
+function setEmpty(id,msg){var el=$(id);if(el)el.innerHTML='<div class="empty">'+(msg||'No data')+'</div>';}
 
 async function api(path){
   var r=await fetch('/api'+path,{cache:'no-store'});
@@ -1503,82 +1508,97 @@ document.querySelectorAll('.period button').forEach(function(btn){
 });
 
 async function loadAll(){
-  try{
-    // Parallel fetch for speed
-    var results=await Promise.all([
-      api('/viral/posts?days='+days+'&limit=10'),
-      api('/sector/rotation?days='+days),
-      api('/wordcloud?days='+days+'&limit=60'),
-      api('/crossmarket/links?days='+days)
-    ]);
-    var vir=results[0], sec=results[1], wc=results[2], xm=results[3];
+  // Set loading states individually
+  setLoading('v-posts','Loading viral posts...');
+  setLoading('v-sector','Loading sectors...');
+  setLoading('v-cloud','Loading word cloud...');
+  setLoading('v-cross','Loading cross-market...');
+  $('v-tickers').innerHTML='';
+  $('top-stats').innerHTML='<div class="stat" style="grid-column:1/-1"><div class="stat-v">-</div><div class="stat-l">Loading...</div></div>';
 
-    // Stats
-    var totalViews=(vir.posts||[]).reduce(function(a,p){return a+(p.views||0)},0);
-    $('top-stats').innerHTML=[
-      ['Viral Posts',fmt((vir.posts||[]).length)],['Total Views',fmt(totalViews)],
-      ['Sectors',fmt((sec.sectors||[]).length)],['Macro Posts',fmt((xm.posts||[]).length)]
-    ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
+  // Load each section independently — one failure doesn't kill others
+  var viralData=null, sectorData=null, cloudData=null, crossData=null;
 
-    renderViral(vir.posts||[]);
-    renderSector(sec.sectors||[], sec.total||0);
-    renderCloud(wc.words||[]);
-    renderCrossMarket(xm||{posts:[],tickers:[]});
-    hideLoader();
-  }catch(e){
-    console.error('loadAll error:',e);
-    $('top-stats').innerHTML='<div class="stat" style="grid-column:1/-1"><div class="stat-v" style="color:#f87171">Error</div><div class="stat-l">'+esc(e.message)+'</div></div>';
-    ['v-posts','v-sector','v-cloud','v-cross','v-tickers'].forEach(function(id){var el=$(id);if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';});
-    hideLoader();
+  try{viralData=await api('/viral/posts?days='+days+'&limit=10');}catch(e){console.error('viral/posts:',e);setError('v-posts',e.message);}
+  try{sectorData=await api('/sector/rotation?days='+days);}catch(e){console.error('sector/rotation:',e);setError('v-sector',e.message);}
+  try{cloudData=await api('/wordcloud?days='+days+'&limit=60');}catch(e){console.error('wordcloud:',e);setError('v-cloud',e.message);}
+  try{crossData=await api('/crossmarket/links?days='+days);}catch(e){console.error('crossmarket/links:',e);setError('v-cross',e.message);}
+
+  // Render viral posts
+  if(viralData){
+    var posts=viralData.posts||[];
+    if(!posts.length){setEmpty('v-posts','No viral posts for this period');}
+    else{$('v-posts').innerHTML=posts.map(function(p,i){
+      var ch=p.channel||'markettwits';
+      var link='https://t.me/'+ch+'/'+p.id;
+      return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
+        '<div class="vpost-head"><span>#'+(i+1)+' | @'+esc(ch)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
+        '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,200))+'</div>'+
+        '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div>'+
+        '</div>';
+    }).join('');}
   }
-}
 
-function renderViral(posts){
-  if(!posts||!posts.length){$('v-posts').innerHTML='<div class="empty">No viral posts</div>';return;}
-  $('v-posts').innerHTML=posts.map(function(p,i){
-    var ch=p.channel||'markettwits';
-    var link='https://t.me/'+ch+'/'+p.id;
-    return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
-      '<div class="vpost-head"><span>#'+(i+1)+' | @'+esc(ch)+'</span><span>'+(p.published?p.published.slice(0,16).replace(\'T\',\' \'):\'\')+'</span></div>'+
-      '<div class="vpost-body">'+esc(p.text||'(no text)').slice(0,200)+'</div>'+
-      '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div>'+
-      '</div>';
-  }).join('');
-}
+  // Render sectors
+  if(sectorData){
+    var sectors=sectorData.sectors||[];
+    var total=sectorData.total||1;
+    if(!sectors.length){setEmpty('v-sector','No sector data');}
+    else{
+      var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
+      var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+      $('v-sector').innerHTML=sectors.map(function(s,i){
+        var pct=Math.round((s.count/maxC)*100);
+        return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
+      }).join('');
+    }
+  }
 
-function renderSector(sectors, total){
-  if(!sectors||!sectors.length){$('v-sector').innerHTML='<div class="empty">No sector data</div>';return;}
-  var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
-  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-  $('v-sector').innerHTML=sectors.map(function(s,i){
-    var pct=Math.round((s.count/maxC)*100);
-    return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
-  }).join('');
-}
+  // Render word cloud
+  if(cloudData){
+    var words=cloudData.words||[];
+    if(!words.length){setEmpty('v-cloud','No word data');}
+    else{
+      var maxC=words[0].count||1;
+      var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
+      $('v-cloud').innerHTML=words.map(function(w,i){
+        var size=10+Math.round((w.count/maxC)*28);
+        return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
+      }).join('');
+    }
+  }
 
-function renderCloud(words){
-  if(!words||!words.length){$('v-cloud').innerHTML='<div class="empty">No word data</div>';return;}
-  var maxC=words[0].count||1;
-  var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-  $('v-cloud').innerHTML=words.map(function(w,i){
-    var size=10+Math.round((w.count/maxC)*28);
-    return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
-  }).join('');
-}
+  // Render cross-market
+  if(crossData){
+    var posts=crossData.posts||[];
+    var tickers=crossData.tickers||[];
+    if(!posts.length){setEmpty('v-cross','No cross-market posts');$('v-tickers').innerHTML='';}
+    else{
+      $('v-cross').innerHTML=posts.slice(0,10).map(function(p){
+        var ch=p.channel||'markettwits';
+        var link='https://t.me/'+ch+'/'+p.id;
+        return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
+          '<div class="xpost-head"><span>@'+esc(ch)+'</span><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
+          '<div class="xpost-body">'+esc((p.text||'(no text)').slice(0,250))+'</div></div>';
+      }).join('');
+      if(tickers.length){
+        $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
+          tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
+      }else{$('v-tickers').innerHTML='';}
+    }
+  }
 
-function renderCrossMarket(data){
-  if(!data.posts||!data.posts.length){$('v-cross').innerHTML='<div class="empty">No cross-market posts</div>';$('v-tickers').innerHTML='';return;}
-  $('v-cross').innerHTML=data.posts.slice(0,10).map(function(p){
-    var ch=p.channel||'markettwits';
-    var link='https://t.me/'+ch+'/'+p.id;
-    return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
-      '<div class="xpost-head"><span>@'+esc(ch)+'</span><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace(\'T\',\' \'):\'\')+'</span></div>'+
-      '<div class="xpost-body">'+esc(p.text||'(no text)').slice(0,250)+'</div></div>';
-  }).join('');
-  if(data.tickers&&data.tickers.length){
-    $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
-      data.tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
-  }else{$('v-tickers').innerHTML='';}
+  // Stats
+  var vPosts=viralData?(viralData.posts||[]).length:'?';
+  var vViews=viralData?(viralData.posts||[]).reduce(function(a,p){return a+(p.views||0)},0):'?';
+  var nSectors=sectorData?(sectorData.sectors||[]).length:'?';
+  var nMacro=crossData?(crossData.posts||[]).length:'?';
+  $('top-stats').innerHTML=[
+    ['Viral Posts',fmt(vPosts)],['Total Views',fmt(vViews)],
+    ['Sectors',fmt(nSectors)],['Macro Posts',fmt(nMacro)]
+  ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(String(s[1]))+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
+
+  hideLoader();
 }
 
 loadAll();
@@ -2431,9 +2451,16 @@ async def premarket_intel(days: int = Query(7, ge=1, le=30)):
 # ═══ NEW: Viral & Cross-Market API ═══════════════════════
 # ═══════════════════════════════════════════════════════════
 
+# Build OR chain for ILIKE keywords
+def _macro_where(prefix: str = "") -> str:
+    """Build WHERE clause for macro keyword matching using simple OR"""
+    keywords = ["нефть", "brent", "wti", "баррель", "usd", "доллар", "eur", "евро", "рубль", "cny", "юань", "ставка", "цб", "ключевая"]
+    col = f"{prefix}text" if prefix else "text"
+    return " OR ".join([f"{col} ILIKE '%{k}%'" for k in keywords])
+
+
 @app.get("/api/viral/posts")
 async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, ge=1, le=20)):
-    """Top most-viewed posts"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
@@ -2456,13 +2483,12 @@ async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, 
                 "channel": r["channel_username"] or "markettwits",
             } for r in rows]}
     except Exception as e:
-        logger.error(f"/viral/posts error: {e}"); traceback.print_exc()
+        logger.error(f"/viral/posts error: {e}")
         return json_response({"posts": [], "error": str(e)}, 500)
 
 
 @app.get("/api/sector/rotation")
 async def sector_rotation(days: int = Query(7, ge=1, le=30)):
-    """Tag mentions grouped by sector"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
@@ -2492,19 +2518,21 @@ async def sector_rotation(days: int = Query(7, ge=1, le=30)):
                 "total": sum(c for _, c in sectors),
             }
     except Exception as e:
-        logger.error(f"/sector/rotation error: {e}"); traceback.print_exc()
+        logger.error(f"/sector/rotation error: {e}")
         return json_response({"sectors": [], "total": 0, "error": str(e)}, 500)
 
 
 @app.get("/api/wordcloud")
 async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(50, ge=1, le=100)):
-    """Word frequency cloud from post texts"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
+            # Limit rows to avoid heavy processing
             result = await session.execute(text("""
                 SELECT text FROM posts
                 WHERE published_at > :since AND text IS NOT NULL AND text != ''
+                ORDER BY views_count DESC
+                LIMIT 5000
             """), {"since": since})
             rows = result.mappings().all()
 
@@ -2522,36 +2550,33 @@ async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(5
             top = counter.most_common(limit)
             return {"words": [{"text": w, "count": c} for w, c in top]}
     except Exception as e:
-        logger.error(f"/wordcloud error: {e}"); traceback.print_exc()
+        logger.error(f"/wordcloud error: {e}")
         return json_response({"words": [], "error": str(e)}, 500)
 
 
 @app.get("/api/crossmarket/links")
 async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
-    """Posts mentioning macro indicators (oil, USD, RUB) and related tickers"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
-            # Use ILIKE ANY instead of regex for reliability
-            macro_keywords = ["%нефть%", "%brent%", "%wti%", "%баррель%", "%usd%", "%доллар%", "%eur%", "%евро%", "%рубль%", "%cny%", "%юань%", "%ставка%", "%цб%", "%ключевая%"]
+            where_clause = _macro_where("p.")
 
-            result = await session.execute(text("""
+            result = await session.execute(text(f"""
                 SELECT telegram_message_id, text, views_count, published_at,
                        c.username as channel_username
                 FROM posts p
                 LEFT JOIN channels c ON p.channel_id = c.id
-                WHERE published_at > :since
-                  AND text ILIKE ANY(:keywords)
-                ORDER BY views_count DESC
+                WHERE p.published_at > :since AND ({where_clause})
+                ORDER BY p.views_count DESC
                 LIMIT 30
-            """), {"since": since, "keywords": macro_keywords})
+            """), {"since": since})
             rows = result.mappings().all()
 
             # Also get ticker co-mentions
-            ticker_result = await session.execute(text("""
+            ticker_result = await session.execute(text(f"""
                 WITH tagged AS (
                     SELECT * FROM posts WHERE published_at > :since
-                      AND text ILIKE ANY(:keywords)
+                      AND ({_macro_where()})
                       AND hashtags IS NOT NULL
                       AND json_typeof(hashtags) = 'array'
                 )
@@ -2561,7 +2586,7 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
                 GROUP BY tag
                 ORDER BY cnt DESC
                 LIMIT 15
-            """), {"since": since, "keywords": macro_keywords})
+            """), {"since": since})
             tickers = [{"tag": r["tag"], "count": r["cnt"], "views": r["total_views"] or 0}
                        for r in ticker_result.mappings().all()]
 
@@ -2576,6 +2601,6 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
                 "tickers": tickers,
             }
     except Exception as e:
-        logger.error(f"/crossmarket/links error: {e}"); traceback.print_exc()
+        logger.error(f"/crossmarket/links error: {e}")
         return json_response({"posts": [], "tickers": [], "error": str(e)}, 500)
 
