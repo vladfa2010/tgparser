@@ -1504,25 +1504,31 @@ document.querySelectorAll('.period button').forEach(function(btn){
 
 async function loadAll(){
   try{
-    var vir=await api('/viral/posts?days='+days+'&limit=10');
-    var sec=await api('/sector/rotation?days='+days);
-    var wc=await api('/wordcloud?days='+days+'&limit=60');
-    var xm=await api('/crossmarket/links?days='+days);
+    // Parallel fetch for speed
+    var results=await Promise.all([
+      api('/viral/posts?days='+days+'&limit=10'),
+      api('/sector/rotation?days='+days),
+      api('/wordcloud?days='+days+'&limit=60'),
+      api('/crossmarket/links?days='+days)
+    ]);
+    var vir=results[0], sec=results[1], wc=results[2], xm=results[3];
 
     // Stats
-    var totalViews=vir.posts.reduce(function(a,p){return a+(p.views||0)},0);
+    var totalViews=(vir.posts||[]).reduce(function(a,p){return a+(p.views||0)},0);
     $('top-stats').innerHTML=[
-      ['Viral Posts',fmt(vir.posts.length)],['Total Views',fmt(totalViews)],
-      ['Sectors',fmt(sec.sectors.length)],['Macro Posts',fmt(xm.posts.length)]
+      ['Viral Posts',fmt((vir.posts||[]).length)],['Total Views',fmt(totalViews)],
+      ['Sectors',fmt((sec.sectors||[]).length)],['Macro Posts',fmt((xm.posts||[]).length)]
     ].map(function(s){return'<div class="stat"><div class="stat-v">'+esc(s[1])+'</div><div class="stat-l">'+s[0]+'</div></div>'}).join('');
 
-    renderViral(vir.posts);
-    renderSector(sec.sectors, sec.total);
-    renderCloud(wc.words);
-    renderCrossMarket(xm);
+    renderViral(vir.posts||[]);
+    renderSector(sec.sectors||[], sec.total||0);
+    renderCloud(wc.words||[]);
+    renderCrossMarket(xm||{posts:[],tickers:[]});
     hideLoader();
   }catch(e){
-    console.error(e);
+    console.error('loadAll error:',e);
+    $('top-stats').innerHTML='<div class="stat" style="grid-column:1/-1"><div class="stat-v" style="color:#f87171">Error</div><div class="stat-l">'+esc(e.message)+'</div></div>';
+    ['v-posts','v-sector','v-cloud','v-cross','v-tickers'].forEach(function(id){var el=$(id);if(el)el.innerHTML='<div class="empty">Failed to load: '+esc(e.message)+'</div>';});
     hideLoader();
   }
 }
@@ -2526,8 +2532,8 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
-            macro_keywords = ["нефть", "brent", "wti", "баррель", "usd", "доллар", "eur", "евро", "рубль", "cny", "юань", "ключевая ставка", "цб", "ставка"]
-            pattern = "|".join(macro_keywords)
+            # Use ILIKE ANY instead of regex for reliability
+            macro_keywords = ["%нефть%", "%brent%", "%wti%", "%баррель%", "%usd%", "%доллар%", "%eur%", "%евро%", "%рубль%", "%cny%", "%юань%", "%ставка%", "%цб%", "%ключевая%"]
 
             result = await session.execute(text("""
                 SELECT telegram_message_id, text, views_count, published_at,
@@ -2535,17 +2541,17 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
                 FROM posts p
                 LEFT JOIN channels c ON p.channel_id = c.id
                 WHERE published_at > :since
-                  AND text ~* :pattern
+                  AND text ILIKE ANY(:keywords)
                 ORDER BY views_count DESC
                 LIMIT 30
-            """), {"since": since, "pattern": pattern})
+            """), {"since": since, "keywords": macro_keywords})
             rows = result.mappings().all()
 
             # Also get ticker co-mentions
             ticker_result = await session.execute(text("""
                 WITH tagged AS (
                     SELECT * FROM posts WHERE published_at > :since
-                      AND text ~* :pattern
+                      AND text ILIKE ANY(:keywords)
                       AND hashtags IS NOT NULL
                       AND json_typeof(hashtags) = 'array'
                 )
@@ -2555,7 +2561,7 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
                 GROUP BY tag
                 ORDER BY cnt DESC
                 LIMIT 15
-            """), {"since": since, "pattern": pattern})
+            """), {"since": since, "keywords": macro_keywords})
             tickers = [{"tag": r["tag"], "count": r["cnt"], "views": r["total_views"] or 0}
                        for r in ticker_result.mappings().all()]
 
