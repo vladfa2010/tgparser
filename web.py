@@ -866,13 +866,18 @@ function resetCharts(){
   charts={};
 }
 
+function showChartsLoader(msg){
+  var sub=$('loader-sub');if(sub)sub.textContent=msg||'Fetching data...';
+  var loader=$('loader');if(loader){loader.classList.remove('done');loader.style.opacity='';loader.style.pointerEvents='';}
+}
+
 async function loadAll(){
   console.log('loadAll() start, days='+days);
   // Reset charts fresh — previous error may have destroyed DOM
   resetCharts();
   ['c-bubble','c-heat','c-hist','c-time','c-pair'].forEach(function(id){var el=$(id);if(el)el.innerHTML='';});
+  showChartsLoader('Fetching data for '+days+'d...');
   try{
-    $('loader-sub').textContent='Fetching data...';
     if(typeof echarts==='undefined'){
       throw new Error('ECharts not loaded. Check CDN connection.');
     }
