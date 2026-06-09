@@ -246,6 +246,9 @@ nav a:hover{color:#e2e8f0;background:#1e293b}
 <a href="/tag-daily">&#128200; Stock</a>
 <a href="/sentiment">&#129504; Sentiment</a>
 <a href="/viral">&#128293; Viral</a>
+<a href="/sectors">&#127775; Sectors</a>
+<a href="/wordcloud">&#9729;&#65039; Words</a>
+<a href="/crossmarket">&#127758; Macro</a>
 </nav>
 
 <section id="tab-posts">
@@ -1353,14 +1356,8 @@ loadAll();
 </html>'''
 
 
-# ─── SPA: Viral & Cross-Market ───────────────────────────────
-VIRAL_HTML = '''<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Viral & Cross-Market — TG Parser</title>
-<style>
+# ─── Shared styles for simple pages ──────────────────────────
+VIRAL_SHARED_CSS = '''
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e2e8f0;line-height:1.5}
 .wrap{max-width:1400px;margin:0 auto;padding:24px}
@@ -1368,79 +1365,38 @@ header{display:flex;align-items:center;justify-content:space-between;flex-wrap:w
 h1{color:#00d4aa;font-size:28px;font-weight:700}
 .back{color:#64748b;text-decoration:none;font-size:14px}
 .back:hover{color:#00d4aa}
-
-/* Loader */
+.period{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b}
+.period button{background:none;border:none;color:#64748b;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
+.period button:hover{color:#e2e8f0;background:#1e293b}
+.period button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
 #loader{position:fixed;inset:0;background:#0a0a1a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .4s}
 #loader.done{opacity:0;pointer-events:none}
 .loader-ring{width:48px;height:48px;border:3px solid #1e293b;border-top-color:#00d4aa;border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loader-text{margin-top:16px;color:#64748b;font-size:14px}
-
-/* Period */
-.period{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b}
-.period button{background:none;border:none;color:#64748b;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
-.period button:hover{color:#e2e8f0;background:#1e293b}
-.period button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
-
-/* Grid */
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;margin-bottom:20px}
-.grid-2{grid-template-columns:repeat(auto-fit,minmax(500px,1fr))}
-.chart-box{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px}
-.chart-box:hover{border-color:#334155}
-.chart-title{font-size:16px;font-weight:600;margin-bottom:4px;color:#00d4aa}
-.chart-sub{font-size:13px;color:#64748b;margin-bottom:16px}
-.chart{min-height:360px}
-.full{grid-column:1/-1}
-
-/* Viral posts */
-.vpost{background:#0a0a1a;border-radius:10px;padding:14px;margin-bottom:10px;font-size:13px;cursor:pointer;transition:.15s}
-.vpost:hover{background:#1e293b}
-.vpost-head{display:flex;justify-content:space-between;margin-bottom:6px;font-size:11px;color:#64748b}
-.vpost-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:60px;overflow:hidden;line-height:1.5}
-.vpost-stats{display:flex;gap:16px;margin-top:8px;font-size:12px;color:#64748b}
-.vpost-stats span{color:#00d4aa;font-weight:600}
-
-/* Sector */
-.sector-row{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0a0a1a;border-radius:8px;margin-bottom:8px}
-.sector-name{min-width:140px;font-weight:600;color:#00d4aa;font-size:14px}
-.sector-bar{flex:1;height:28px;background:#0f172a;border-radius:6px;overflow:hidden}
-.sector-bar-fill{height:100%;border-radius:6px;display:flex;align-items:center;padding:0 10px;font-size:12px;font-weight:600;color:#fff;transition:width .8s}
-.sector-count{min-width:60px;text-align:right;color:#64748b;font-size:12px}
-
-/* Word cloud */
-.cloud{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;min-height:300px;padding:20px}
-.cloud-tag{padding:8px 18px;border-radius:20px;font-weight:600;cursor:pointer;transition:transform .2s,opacity .2s;opacity:.85}
-.cloud-tag:hover{transform:scale(1.1);opacity:1}
-
-/* Cross-market */
-.xpost{background:#0a0a1a;border-radius:10px;padding:12px;margin-bottom:8px;font-size:13px}
-.xpost-head{display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;color:#64748b}
-.xpost-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:50px;overflow:hidden}
-.xticker{display:inline-block;background:#1e293b;color:#00d4aa;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;margin:3px}
-
-/* Stats */
-.stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
-.stat{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;text-align:center}
-.stat-v{font-size:24px;font-weight:700;color:#00d4aa}
-.stat-l{font-size:11px;color:#64748b;margin-top:4px}
-
 .empty{text-align:center;color:#64748b;padding:60px;font-size:14px}
-.btn{background:#00d4aa;color:#0a0a1a;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
-.btn:hover{opacity:.85}
+'''
 
-/* Tabs nav */
-nav{display:flex;gap:4px;background:#0f172a;padding:4px;border-radius:10px;border:1px solid #1e293b;width:fit-content;margin-bottom:20px}
-nav button{background:none;border:none;color:#64748b;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:.15s}
-nav button:hover{color:#e2e8f0;background:#1e293b}
-nav button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
+# ─── Page 1: Viral Posts ─────────────────────────────────────
+VIRAL_POSTS_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viral Posts — TG Parser</title>
+<style>''' + VIRAL_SHARED_CSS + '''
+.vpost{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;transition:.15s}
+.vpost:hover{border-color:#334155}
+.vpost-head{display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#64748b}
+.vpost-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:80px;overflow:hidden;line-height:1.5;font-size:14px}
+.vpost-stats{display:flex;gap:20px;margin-top:10px;font-size:13px;color:#64748b}
+.vpost-stats span{color:#00d4aa;font-weight:600}
 </style>
 </head>
 <body>
 <div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
-
 <div class="wrap">
-<header>
-<h1>Viral & Cross-Market</h1>
+<header><h1>🔥 Viral Posts</h1>
 <div class="period">
 <button class="on" data-d="1">1d</button>
 <button data-d="3">3d</button>
@@ -1449,163 +1405,251 @@ nav button.on{color:#0a0a1a;background:#00d4aa;font-weight:600}
 </div>
 <a href="/" class="back">&larr; Back</a>
 </header>
-
-<nav style="margin-bottom:20px">
-<button class="on" data-tab="posts">🔥 Viral Posts</button>
-<button data-tab="sectors">🏭 Sectors</button>
-<button data-tab="cloud">☁️ Word Cloud</button>
-<button data-tab="cross">🌍 Cross-Market</button>
-</nav>
-
-<section id="tab-posts"><div id="v-posts"></div></section>
-<section id="tab-sectors" style="display:none"><div id="v-sector"></div></section>
-<section id="tab-cloud" style="display:none"><div id="v-cloud" class="cloud"></div></section>
-<section id="tab-cross" style="display:none"><div id="v-cross"></div><div id="v-tickers" style="margin-top:12px"></div></section>
-
+<div id="content"></div>
 </div>
-
 <script>
 (function(){
-'use strict';
-var days=7,activeTab='posts',loaded={posts:false,sectors:false,cloud:false,cross:false};
-var $=function(id){return document.getElementById(id)};
-
+var days=7,$=function(id){return document.getElementById(id)};
 function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
 setTimeout(hideLoader,5000);
-
-function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
 
-function setLoading(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#64748b;padding:40px;font-size:14px">'+(msg||'Loading...')+'</div>';}
-function setError(id,msg){var el=$(id);if(el)el.innerHTML='<div style="text-align:center;color:#f87171;padding:40px;font-size:14px">Error: '+esc(msg)+'</div>';}
-function setEmpty(id,msg){var el=$(id);if(el)el.innerHTML='<div class="empty">'+(msg||'No data')+'</div>';}
-
-async function api(path){
-  var ctrl=new AbortController();
-  var t=setTimeout(function(){ctrl.abort();},12000);
+async function load(){
+  $('content').innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Loading...</div>';
   try{
-    var r=await fetch('/api'+path,{cache:'no-store',signal:ctrl.signal});
-    clearTimeout(t);
+    var r=await fetch('/api/viral/posts?days='+days+'&limit=10',{cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
     if(d.error) throw new Error(d.error);
-    return d;
-  }catch(e){
-    clearTimeout(t);
-    if(e.name==='AbortError') throw new Error('Timeout (12s)');
-    throw e;
-  }
-}
-
-// Period selector
-document.querySelectorAll('.period button').forEach(function(btn){
-  btn.addEventListener('click',function(){
-    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
-    btn.classList.add('on');
-    days=parseInt(btn.dataset.d);
-    loaded={posts:false,sectors:false,cloud:false,cross:false};
-    loadTab(activeTab,true);
-  });
-});
-
-// Tab switcher
-document.querySelectorAll('nav button').forEach(function(btn){
-  btn.addEventListener('click',function(){
-    var tab=btn.dataset.tab;
-    document.querySelectorAll('nav button').forEach(function(b){b.classList.remove('on')});
-    btn.classList.add('on');
-    ['posts','sectors','cloud','cross'].forEach(function(t){$('tab-'+t).style.display=(t===tab)?'':'none';});
-    activeTab=tab;
-    loadTab(tab,false);
-  });
-});
-
-async function loadTab(tab,force){
-  if(loaded[tab]&&!force) return;
-  loaded[tab]=true;
-  try{
-    if(tab==='posts') await loadPosts();
-    else if(tab==='sectors') await loadSectors();
-    else if(tab==='cloud') await loadCloud();
-    else if(tab==='cross') await loadCross();
-  }catch(e){console.error('Tab '+tab+':',e);}
-  hideLoader();
-}
-
-// ─── Viral Posts ───
-async function loadPosts(){
-  setLoading('v-posts','Loading viral posts...');
-  try{
-    var data=await api('/viral/posts?days='+days+'&limit=10');
-    var posts=(data&&data.posts)||[];
-    if(!posts.length){setEmpty('v-posts','No viral posts for this period');return;}
-    $('v-posts').innerHTML=posts.map(function(p,i){
+    var posts=d.posts||[];
+    if(!posts.length){$('content').innerHTML='<div class="empty">No viral posts</div>';hideLoader();return;}
+    $('content').innerHTML=posts.map(function(p,i){
       var link='https://t.me/markettwits/'+p.id;
       return'<div class="vpost" onclick="window.open(\''+link+'\')">'+
         '<div class="vpost-head"><span>#'+(i+1)+'</span><span>'+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
-        '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,200))+'</div>'+
+        '<div class="vpost-body">'+esc((p.text||'(no text)').slice(0,250))+'</div>'+
         '<div class="vpost-stats"><span>👁 '+fmt(p.views)+'</span><span>↗️ '+fmt(p.forwards)+'</span></div></div>';
     }).join('');
-  }catch(e){setError('v-posts',e.message);}
+  }catch(e){$('content').innerHTML='<div style="text-align:center;color:#f87171;padding:40px">Error: '+esc(e.message)+'</div>';}
+  hideLoader();
 }
 
-// ─── Sectors ───
-async function loadSectors(){
-  setLoading('v-sector','Loading sectors...');
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');days=parseInt(btn.dataset.d);load();
+  });
+});
+load();
+})();
+</script>
+</body>
+</html>'''
+
+# ─── Page 2: Sector Rotation ─────────────────────────────────
+SECTORS_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sector Rotation — TG Parser</title>
+<style>''' + VIRAL_SHARED_CSS + '''
+.sector-row{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#0f172a;border:1px solid #1e293b;border-radius:12px;margin-bottom:10px}
+.sector-row:hover{border-color:#334155}
+.sector-name{min-width:160px;font-weight:600;color:#00d4aa;font-size:15px}
+.sector-bar{flex:1;height:32px;background:#0a0a1a;border-radius:8px;overflow:hidden}
+.sector-bar-fill{height:100%;border-radius:8px;display:flex;align-items:center;padding:0 12px;font-size:12px;font-weight:600;color:#fff;transition:width .8s}
+.sector-count{min-width:70px;text-align:right;color:#64748b;font-size:13px}
+</style>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
+<div class="wrap">
+<header><h1>🏭 Sector Rotation</h1>
+<div class="period">
+<button class="on" data-d="1">1d</button>
+<button data-d="3">3d</button>
+<button data-d="7">7d</button>
+<button data-d="30">30d</button>
+</div>
+<a href="/" class="back">&larr; Back</a>
+</header>
+<div id="content"></div>
+</div>
+<script>
+(function(){
+var days=7,$=function(id){return document.getElementById(id)};
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,5000);
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
+
+async function load(){
+  $('content').innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Loading...</div>';
   try{
-    var data=await api('/sector/rotation?days='+days);
-    var sectors=(data&&data.sectors)||[];
-    var total=(data&&data.total)||1;
-    if(!sectors.length){setEmpty('v-sector','No sector data');return;}
+    var r=await fetch('/api/sector/rotation?days='+days,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    var sectors=d.sectors||[],total=d.total||1;
+    if(!sectors.length){$('content').innerHTML='<div class="empty">No sector data</div>';hideLoader();return;}
     var maxC=Math.max.apply(null,sectors.map(function(s){return s.count}))||1;
     var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-    $('v-sector').innerHTML=sectors.map(function(s,i){
+    $('content').innerHTML=sectors.map(function(s,i){
       var pct=Math.round((s.count/maxC)*100);
       return'<div class="sector-row"><div class="sector-name">'+esc(s.name)+'</div><div class="sector-bar"><div class="sector-bar-fill" style="width:'+pct+'%;background:'+colors[i%colors.length]+'">'+fmt(s.count)+'</div></div><div class="sector-count">'+Math.round((s.count/total)*100)+'%</div></div>';
     }).join('');
-  }catch(e){setError('v-sector',e.message);}
+  }catch(e){$('content').innerHTML='<div style="text-align:center;color:#f87171;padding:40px">Error: '+esc(e.message)+'</div>';}
+  hideLoader();
 }
 
-// ─── Word Cloud ───
-async function loadCloud(){
-  setLoading('v-cloud','Loading word cloud...');
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');days=parseInt(btn.dataset.d);load();
+  });
+});
+load();
+})();
+</script>
+</body>
+</html>'''
+
+# ─── Page 3: Word Cloud ──────────────────────────────────────
+WORDCLOUD_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Word Cloud — TG Parser</title>
+<style>''' + VIRAL_SHARED_CSS + '''
+.cloud{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;min-height:400px;padding:30px}
+.cloud-tag{padding:10px 20px;border-radius:24px;font-weight:600;cursor:pointer;transition:transform .2s,opacity .2s;opacity:.85}
+.cloud-tag:hover{transform:scale(1.12);opacity:1}
+</style>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
+<div class="wrap">
+<header><h1>☁️ Word Cloud</h1>
+<div class="period">
+<button class="on" data-d="1">1d</button>
+<button data-d="3">3d</button>
+<button data-d="7">7d</button>
+<button data-d="30">30d</button>
+</div>
+<a href="/" class="back">&larr; Back</a>
+</header>
+<div id="content" class="cloud"></div>
+</div>
+<script>
+(function(){
+var days=7,$=function(id){return document.getElementById(id)};
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,5000);
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+async function load(){
+  $('content').innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Loading...</div>';
   try{
-    var data=await api('/wordcloud?days='+days+'&limit=60');
-    var words=(data&&data.words)||[];
-    if(!words.length){setEmpty('v-cloud','No word data');return;}
+    var r=await fetch('/api/wordcloud?days='+days+'&limit=80',{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    var words=d.words||[];
+    if(!words.length){$('content').innerHTML='<div class="empty">No word data</div>';hideLoader();return;}
     var maxC=words[0].count||1;
     var colors=['#00d4aa','#00b894','#0984e3','#6c5ce7','#fd79a8','#e17055','#fdcb6e','#55efc4','#00cec9','#81ecec'];
-    $('v-cloud').innerHTML=words.map(function(w,i){
-      var size=10+Math.round((w.count/maxC)*28);
+    $('content').innerHTML=words.map(function(w,i){
+      var size=12+Math.round((w.count/maxC)*30);
       return'<span class="cloud-tag" style="font-size:'+size+'px;background:'+colors[i%colors.length]+'20;color:'+colors[i%colors.length]+';border:1px solid '+colors[i%colors.length]+'40">'+esc(w.text)+'</span>';
     }).join('');
-  }catch(e){setError('v-cloud',e.message);}
+  }catch(e){$('content').innerHTML='<div style="text-align:center;color:#f87171;padding:40px">Error: '+esc(e.message)+'</div>';}
+  hideLoader();
 }
 
-// ─── Cross-Market ───
-async function loadCross(){
-  setLoading('v-cross','Loading cross-market...');
-  $('v-tickers').innerHTML='';
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');days=parseInt(btn.dataset.d);load();
+  });
+});
+load();
+})();
+</script>
+</body>
+</html>'''
+
+# ─── Page 4: Cross-Market ────────────────────────────────────
+CROSSMARKET_HTML = '''<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cross-Market — TG Parser</title>
+<style>''' + VIRAL_SHARED_CSS + '''
+.xpost{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:14px;margin-bottom:10px;cursor:pointer;transition:.15s}
+.xpost:hover{border-color:#334155}
+.xpost-head{display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px;color:#64748b}
+.xpost-body{color:#e2e8f0;white-space:pre-wrap;word-break:break-word;max-height:60px;overflow:hidden;font-size:14px;line-height:1.5}
+.xticker{display:inline-block;background:#1e293b;color:#00d4aa;padding:4px 12px;border-radius:16px;font-size:13px;font-weight:600;margin:4px}
+</style>
+</head>
+<body>
+<div id="loader"><div class="loader-ring"></div><div class="loader-text">Loading...</div></div>
+<div class="wrap">
+<header><h1>🌍 Cross-Market</h1>
+<div class="period">
+<button class="on" data-d="1">1d</button>
+<button data-d="3">3d</button>
+<button data-d="7">7d</button>
+<button data-d="30">30d</button>
+</div>
+<a href="/" class="back">&larr; Back</a>
+</header>
+<div id="content"></div>
+<div id="tickers" style="margin-top:16px"></div>
+</div>
+<script>
+(function(){
+var days=7,$=function(id){return document.getElementById(id)};
+function hideLoader(){var el=$('loader');if(el&&!el.classList.contains('done'))el.classList.add('done')}
+setTimeout(hideLoader,5000);
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmt(n){return(n||0).toLocaleString('en').replace(/,/g,' ')}
+
+async function load(){
+  $('content').innerHTML='<div style="text-align:center;color:#64748b;padding:40px">Loading...</div>';
+  $('tickers').innerHTML='';
   try{
-    var data=await api('/crossmarket/links?days='+days);
-    var posts=(data&&data.posts)||[];
-    var tickers=(data&&data.tickers)||[];
-    if(!posts.length){setEmpty('v-cross','No cross-market posts');return;}
-    $('v-cross').innerHTML=posts.slice(0,10).map(function(p){
+    var r=await fetch('/api/crossmarket/links?days='+days,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    var posts=d.posts||[],tickers=d.tickers||[];
+    if(!posts.length){$('content').innerHTML='<div class="empty">No cross-market posts</div>';hideLoader();return;}
+    $('content').innerHTML=posts.slice(0,10).map(function(p){
       var link='https://t.me/markettwits/'+p.id;
       return'<div class="xpost" onclick="window.open(\''+link+'\')">'+
         '<div class="xpost-head"><span>👁 '+fmt(p.views)+' | '+(p.published?p.published.slice(0,16).replace('T',' '):'')+'</span></div>'+
         '<div class="xpost-body">'+esc((p.text||'(no text)').slice(0,250))+'</div></div>';
     }).join('');
     if(tickers.length){
-      $('v-tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:8px">📌 Co-mentioned tickers:</div>'+
+      $('tickers').innerHTML='<div style="color:#64748b;font-size:13px;margin-bottom:10px">📌 Co-mentioned tickers:</div>'+
         tickers.map(function(t){return'<span class="xticker">'+esc(t.tag)+' ('+t.count+')</span>';}).join('');
     }
-  }catch(e){setError('v-cross',e.message);}
+  }catch(e){$('content').innerHTML='<div style="text-align:center;color:#f87171;padding:40px">Error: '+esc(e.message)+'</div>';}
+  hideLoader();
 }
 
-// Load first tab only
-loadTab('posts',false);
+document.querySelectorAll('.period button').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.period button').forEach(function(b){b.classList.remove('on')});
+    btn.classList.add('on');days=parseInt(btn.dataset.d);load();
+  });
+});
+load();
 })();
 </script>
 </body>
@@ -1639,7 +1683,22 @@ async def sentiment_page():
 
 @app.get("/viral", response_class=HTMLResponse)
 async def viral_page():
-    return HTMLResponse(content=VIRAL_HTML)
+    return HTMLResponse(content=VIRAL_POSTS_HTML)
+
+
+@app.get("/sectors", response_class=HTMLResponse)
+async def sectors_page():
+    return HTMLResponse(content=SECTORS_HTML)
+
+
+@app.get("/wordcloud", response_class=HTMLResponse)
+async def wordcloud_page():
+    return HTMLResponse(content=WORDCLOUD_HTML)
+
+
+@app.get("/crossmarket", response_class=HTMLResponse)
+async def crossmarket_page():
+    return HTMLResponse(content=CROSSMARKET_HTML)
 
 
 # ─── API: Stats ──────────────────────────────────────────────
