@@ -2451,12 +2451,11 @@ async def premarket_intel(days: int = Query(7, ge=1, le=30)):
 
 
 # ═══════════════════════════════════════════════════════════
-# ═══ NEW: Viral & Cross-Market API (FAST — sub-second) ═══
+# ═══ Viral & Cross-Market API (NO json_array_elements!) ══
 # ═══════════════════════════════════════════════════════════
 
 @app.get("/api/viral/posts")
 async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, ge=1, le=20)):
-    """Top posts — uses index on views_count"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
@@ -2483,30 +2482,30 @@ async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, 
 
 @app.get("/api/sector/rotation")
 async def sector_rotation(days: int = Query(7, ge=1, le=30)):
-    """Fast: pre-aggregate in Python, limit to top 50 tags first"""
+    """NO json_array_elements — fetch hashtags json, parse in Python"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
-            # Fetch top 100 tags first — much faster than expanding all
             result = await session.execute(text("""
-                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt
-                FROM posts
+                SELECT hashtags FROM posts
                 WHERE published_at > :since
                   AND hashtags IS NOT NULL
                   AND json_typeof(hashtags) = 'array'
                   AND json_array_length(hashtags) > 0
-                GROUP BY tag
-                ORDER BY cnt DESC
-                LIMIT 100
             """), {"since": since})
             rows = result.mappings().all()
 
-            from collections import defaultdict
-            sector_counts = defaultdict(int)
+            from collections import defaultdict, Counter
+            tag_counter = Counter()
             for r in rows:
-                tag = r["tag"].replace("#", "").upper()
-                sector = TICKER_TO_SECTOR.get(tag, "Other")
-                sector_counts[sector] += r["cnt"]
+                for tag in (r["hashtags"] or []):
+                    tag_counter[tag] += 1
+
+            sector_counts = defaultdict(int)
+            for tag, cnt in tag_counter.most_common(100):
+                clean = tag.replace("#", "").upper()
+                sector = TICKER_TO_SECTOR.get(clean, "Other")
+                sector_counts[sector] += cnt
 
             sectors = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)
             return {
@@ -2520,25 +2519,26 @@ async def sector_rotation(days: int = Query(7, ge=1, le=30)):
 
 @app.get("/api/wordcloud")
 async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(50, ge=1, le=100)):
-    """Fast: SQL-level word extraction from hashtags only (indexed), NOT post text"""
+    """NO json_array_elements — fetch hashtags json, count in Python"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
-            # Extract words from hashtags only — much faster than parsing full text
             result = await session.execute(text("""
-                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt
-                FROM posts
+                SELECT hashtags FROM posts
                 WHERE published_at > :since
                   AND hashtags IS NOT NULL
                   AND json_typeof(hashtags) = 'array'
                   AND json_array_length(hashtags) > 0
-                GROUP BY tag
-                ORDER BY cnt DESC
-                LIMIT :limit
-            """), {"since": since, "limit": limit})
+            """), {"since": since})
             rows = result.mappings().all()
 
-            return {"words": [{"text": r["tag"], "count": r["cnt"]} for r in rows]}
+            from collections import Counter
+            counter = Counter()
+            for r in rows:
+                for tag in (r["hashtags"] or []):
+                    counter[tag] += 1
+
+            return {"words": [{"text": w, "count": c} for w, c in counter.most_common(limit)]}
     except Exception as e:
         logger.error(f"/wordcloud error: {e}")
         return json_response({"words": [], "error": str(e)}, 500)
@@ -2546,52 +2546,36 @@ async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(5
 
 @app.get("/api/crossmarket/links")
 async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
-    """Fast: search hashtags only, no full-text ILIKE"""
+    """NO json_array_elements — hashtags::text ILIKE + Python parsing"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
-            macro_hashtags = ["нефть", "brent", "usd", "доллар", "eur", "рубль", "cny", "ставка", "цб", "moex"]
-            placeholders = ",".join([f":h{i}" for i in range(len(macro_hashtags))])
-            params = {f"h{i}": f"%#{h}%" for i, h in enumerate(macro_hashtags)}
-            params["since"] = since
-
-            # Simple ILIKE on hashtags column (text search, not jsonb expansion)
-            where_clauses = " OR ".join([f"hashtags::text ILIKE :h{i}" for i in range(len(macro_hashtags))])
-
-            result = await session.execute(text(f"""
-                SELECT telegram_message_id, text, views_count, published_at
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, views_count, published_at, hashtags
                 FROM posts
                 WHERE published_at > :since
-                  AND ({where_clauses})
+                  AND hashtags::text ILIKE ANY(ARRAY['%нефть%','%brent%','%usd%','%доллар%','%eur%','%рубль%','%ставка%','%цб%'])
                 ORDER BY views_count DESC
                 LIMIT 30
-            """), params)
+            """), {"since": since})
             rows = result.mappings().all()
 
-            # Ticker co-mentions
-            ticker_result = await session.execute(text(f"""
-                SELECT json_array_elements_text(hashtags) as tag, COUNT(*) as cnt
-                FROM posts
-                WHERE published_at > :since
-                  AND ({where_clauses})
-                  AND hashtags IS NOT NULL
-                  AND json_typeof(hashtags) = 'array'
-                GROUP BY tag
-                ORDER BY cnt DESC
-                LIMIT 15
-            """), params)
-            tickers = [{"tag": r["tag"], "count": r["cnt"]} for r in ticker_result.mappings().all()]
-
-            return {
-                "posts": [{
+            from collections import Counter
+            ticker_counter = Counter()
+            posts_out = []
+            for r in rows:
+                posts_out.append({
                     "id": r["telegram_message_id"],
                     "text": r["text"],
                     "views": r["views_count"] or 0,
                     "published": r["published_at"].isoformat() if r["published_at"] else None,
                     "channel": "markettwits",
-                } for r in rows],
-                "tickers": tickers,
-            }
+                })
+                for tag in (r["hashtags"] or []):
+                    ticker_counter[tag] += 1
+
+            tickers = [{"tag": t, "count": c} for t, c in ticker_counter.most_common(15)]
+            return {"posts": posts_out, "tickers": tickers}
     except Exception as e:
         logger.error(f"/crossmarket/links error: {e}")
         return json_response({"posts": [], "tickers": [], "error": str(e)}, 500)
