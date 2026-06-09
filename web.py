@@ -2519,14 +2519,17 @@ async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, 
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
+            # Use indexed published_at filter, skip ORDER BY views_count (no index)
+            # Instead: fetch recent posts, sort in Python
             result = await session.execute(text("""
                 SELECT telegram_message_id, text, views_count, forwards_count, published_at
                 FROM posts
                 WHERE published_at > :since
-                ORDER BY views_count DESC
-                LIMIT :limit
-            """), {"since": since, "limit": limit})
+                LIMIT 500
+            """), {"since": since})
             rows = result.mappings().all()
+            # Sort in Python
+            posts = sorted(rows, key=lambda r: r["views_count"] or 0, reverse=True)[:limit]
             return {"posts": [{
                 "id": r["telegram_message_id"],
                 "text": r["text"],
@@ -2534,7 +2537,7 @@ async def viral_posts(days: int = Query(7, ge=1, le=30), limit: int = Query(10, 
                 "forwards": r["forwards_count"] or 0,
                 "published": r["published_at"].isoformat() if r["published_at"] else None,
                 "channel": "markettwits",
-            } for r in rows]}
+            } for r in posts]}
     except Exception as e:
         logger.error(f"/viral/posts error: {e}")
         return json_response({"posts": [], "error": str(e)}, 500)
@@ -2552,6 +2555,7 @@ async def sector_rotation(days: int = Query(7, ge=1, le=30)):
                   AND hashtags IS NOT NULL
                   AND json_typeof(hashtags) = 'array'
                   AND json_array_length(hashtags) > 0
+                LIMIT 3000
             """), {"since": since})
             rows = result.mappings().all()
 
@@ -2589,6 +2593,7 @@ async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(5
                   AND hashtags IS NOT NULL
                   AND json_typeof(hashtags) = 'array'
                   AND json_array_length(hashtags) > 0
+                LIMIT 3000
             """), {"since": since})
             rows = result.mappings().all()
 
@@ -2606,17 +2611,18 @@ async def wordcloud_data(days: int = Query(7, ge=1, le=30), limit: int = Query(5
 
 @app.get("/api/crossmarket/links")
 async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
-    """NO json_array_elements — hashtags::text ILIKE + Python parsing"""
+    """Fetch recent posts, filter in Python — no ILIKE on text columns"""
     try:
         async with async_session() as session:
             since = await get_since(session, timedelta(days=days))
+            macro_keywords = ["нефть", "brent", "usd", "доллар", "eur", "рубль", "ставка", "цб", "moex"]
+
+            # Simple fetch by date — Python filtering
             result = await session.execute(text("""
                 SELECT telegram_message_id, text, views_count, published_at, hashtags
                 FROM posts
                 WHERE published_at > :since
-                  AND hashtags::text ILIKE ANY(ARRAY['%нефть%','%brent%','%usd%','%доллар%','%eur%','%рубль%','%ставка%','%цб%'])
-                ORDER BY views_count DESC
-                LIMIT 30
+                LIMIT 500
             """), {"since": since})
             rows = result.mappings().all()
 
@@ -2624,6 +2630,16 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
             ticker_counter = Counter()
             posts_out = []
             for r in rows:
+                text_lower = (r["text"] or "").lower()
+                hashtags = r["hashtags"] or []
+                # Check if post mentions macro keywords
+                match = False
+                for kw in macro_keywords:
+                    if kw in text_lower or any(kw in (t or "").lower() for t in hashtags):
+                        match = True
+                        break
+                if not match:
+                    continue
                 posts_out.append({
                     "id": r["telegram_message_id"],
                     "text": r["text"],
@@ -2631,11 +2647,13 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
                     "published": r["published_at"].isoformat() if r["published_at"] else None,
                     "channel": "markettwits",
                 })
-                for tag in (r["hashtags"] or []):
+                for tag in hashtags:
                     ticker_counter[tag] += 1
 
+            # Sort by views in Python
+            posts_out.sort(key=lambda p: p["views"], reverse=True)
             tickers = [{"tag": t, "count": c} for t, c in ticker_counter.most_common(15)]
-            return {"posts": posts_out, "tickers": tickers}
+            return {"posts": posts_out[:30], "tickers": tickers}
     except Exception as e:
         logger.error(f"/crossmarket/links error: {e}")
         return json_response({"posts": [], "tickers": [], "error": str(e)}, 500)
