@@ -30,9 +30,15 @@ TG_API_ID = int(os.getenv("TG_API_ID", "0"))
 TG_API_HASH = os.getenv("TG_API_HASH", "")
 TG_STRING_SESSION = os.getenv("TG_STRING_SESSION", "")
 TG_SESSION = os.getenv("TG_SESSION", "/app/sessions/markettwits_session")
-# Comma-separated list of channel usernames, e.g. "markettwits,another_channel"
+# Comma-separated list of sources (channels, groups, chats)
+# Supports: username (@markettwits → markettwits), invite link, chat ID
+# Examples: "markettwits,mygroup,-1001234567890"
 _CHANNELS_ENV = os.getenv("CHANNELS", os.getenv("CHANNEL_USERNAME", "markettwits"))
 CHANNELS = [c.strip() for c in _CHANNELS_ENV.split(",") if c.strip()]
+
+# New: CHATS env var for groups/chats you're a member of
+_CHATS_ENV = os.getenv("CHATS", "")
+CHATS = [c.strip() for c in _CHATS_ENV.split(",") if c.strip()]
 SCHEDULE_MODE = os.getenv("SCHEDULE_MODE", "0") == "1"
 INTERVAL_SEC = int(os.getenv("INTERVAL_SEC", "300"))
 HISTORY = os.getenv("HISTORY", "0") == "1"

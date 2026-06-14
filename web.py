@@ -2658,3 +2658,144 @@ async def crossmarket_links(days: int = Query(7, ge=1, le=30)):
         logger.error(f"/crossmarket/links error: {e}")
         return json_response({"posts": [], "tickers": [], "error": str(e)}, 500)
 
+
+
+# ═══════════════════════════════════════════════════════════
+# ═══ AI Sentiment Analysis (rubert-tiny2) ════════════════
+# ═══════════════════════════════════════════════════════════
+
+# Lazy import — model loads on first use, not at startup
+_sentiment_ai = None
+
+def _get_sentiment_ai():
+    """Lazy import of sentiment_ai module."""
+    global _sentiment_ai
+    if _sentiment_ai is None:
+        import sentiment_ai
+        _sentiment_ai = sentiment_ai
+    return _sentiment_ai
+
+
+@app.get("/api/sentiment/ai")
+async def sentiment_ai_single(text: str = Query(..., min_length=1, max_length=2000)):
+    """Analyze sentiment of a single text using rubert-tiny2 AI model."""
+    try:
+        sai = _get_sentiment_ai()
+        result = sai.analyze(text)
+        return {"text": text[:200], "result": result}
+    except Exception as e:
+        logger.error(f"/sentiment/ai error: {e}")
+        return json_response({"error": str(e)}, 500)
+
+
+@app.get("/api/sentiment/ai-timeline")
+async def sentiment_ai_timeline(days: int = Query(7, ge=1, le=30)):
+    """Daily sentiment timeline using rubert-tiny2 AI model (not lexicon)."""
+    try:
+        sai = _get_sentiment_ai()
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT
+                    ((published_at AT TIME ZONE 'UTC')::date)::text as d,
+                    text
+                FROM posts
+                WHERE published_at > :since AND text IS NOT NULL AND text != ''
+                ORDER BY d
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            from collections import defaultdict
+            daily = defaultdict(lambda: {"pos": 0, "neg": 0, "neu": 0, "total": 0, "ai_processed": 0, "lexicon_fallback": 0})
+
+            for r in rows:
+                txt = r["text"] or ""
+                day = r["d"]
+                label, score, source = sai._ai_sentiment(txt)
+
+                daily[day]["total"] += 1
+                if label == "positive":
+                    daily[day]["pos"] += 1
+                elif label == "negative":
+                    daily[day]["neg"] += 1
+                else:
+                    daily[day]["neu"] += 1
+
+                daily[day]["ai_processed"] += 1 if source == "ai" else 0
+                daily[day]["lexicon_fallback"] += 1 if source == "lexicon" else 0
+
+            labels = []
+            pos_series = []
+            neg_series = []
+            neu_series = []
+            for i in range(days + 1):
+                dt = since + timedelta(days=i)
+                d_str = dt.strftime("%Y-%m-%d")
+                labels.append(dt.strftime("%m-%d"))
+                pos_series.append(daily[d_str]["pos"])
+                neg_series.append(daily[d_str]["neg"])
+                neu_series.append(daily[d_str]["neu"])
+
+            return {
+                "days": labels,
+                "positive": pos_series,
+                "negative": neg_series,
+                "neutral": neu_series,
+                "model": sai.get_stats(),
+            }
+    except Exception as e:
+        logger.error(f"/sentiment/ai-timeline error: {e}"); traceback.print_exc()
+        return json_response({
+            "days": [], "positive": [], "negative": [], "neutral": [],
+            "error": str(e),
+        }, 500)
+
+
+@app.get("/api/sentiment/ai-posts")
+async def sentiment_ai_posts(days: int = Query(1, ge=1, le=7), sentiment: str = Query("negative"), limit: int = Query(20, ge=1, le=50)):
+    """Get posts with specific AI sentiment (positive/negative/neutral)."""
+    try:
+        sai = _get_sentiment_ai()
+        async with async_session() as session:
+            since = await get_since(session, timedelta(days=days))
+            result = await session.execute(text("""
+                SELECT telegram_message_id, text, views_count, published_at
+                FROM posts
+                WHERE published_at > :since AND text IS NOT NULL AND text != ''
+                ORDER BY views_count DESC
+                LIMIT 300
+            """), {"since": since})
+            rows = result.mappings().all()
+
+            filtered = []
+            for r in rows:
+                txt = r["text"] or ""
+                label, score, source = sai._ai_sentiment(txt)
+                if label == sentiment and score >= 0.6:
+                    filtered.append({
+                        "id": r["telegram_message_id"],
+                        "text": txt[:300],
+                        "views": r["views_count"] or 0,
+                        "published": r["published_at"].isoformat() if r["published_at"] else None,
+                        "sentiment": label,
+                        "score": round(score, 4),
+                        "source": source,
+                    })
+                if len(filtered) >= limit:
+                    break
+
+            return {"posts": filtered, "model": sai.get_stats()}
+    except Exception as e:
+        logger.error(f"/sentiment/ai-posts error: {e}")
+        return json_response({"posts": [], "error": str(e)}, 500)
+
+
+@app.get("/api/sentiment/ai-stats")
+async def sentiment_ai_stats():
+    """Get AI sentiment model status and cache statistics."""
+    try:
+        sai = _get_sentiment_ai()
+        return sai.get_stats()
+    except Exception as e:
+        logger.error(f"/sentiment/ai-stats error: {e}")
+        return json_response({"error": str(e)}, 500)
